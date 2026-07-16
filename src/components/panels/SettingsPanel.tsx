@@ -373,7 +373,8 @@ export function SettingsPanel() {
 
   const [activeTab, setActiveTab] = useState<string>("api");
   const hasStorageManager = typeof window !== "undefined" && !!window.storageManager;
-  const hasAppUpdater = typeof window !== "undefined" && !!window.appUpdater;
+  const hasAppUpdater = typeof window !== "undefined" && !!window.ipcRenderer; // 仅 Electron 桌面版有此功能
+  const isElectron = typeof window !== "undefined" && !!window.ipcRenderer;
 
   const formatBytes = useCallback((bytes: number) => {
     if (!bytes) return "0 B";

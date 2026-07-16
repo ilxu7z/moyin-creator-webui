@@ -148,21 +148,103 @@ export async function installWebShims(): Promise<void> {
     getAbsolutePath: async () => null,
   };
 
-  // 4. storageManager — mock
+  // 4. storageManager — WebUI 真实实现，对接 HTTP 存储服务
   (window as any).storageManager = {
-    getPaths: async () => ({ dataPath: '/browser/storage', cachePath: '/browser/cache' }),
+    getPaths: async () => ({
+      basePath: '~/Documents/moyin-creator/data',
+      dataPath: '/Users/chee/Documents/moyin-creator/data',
+      cachePath: '/Users/chee/Documents/moyin-creator/data/cache',
+    }),
     selectDirectory: async () => null,
-    getCacheSize: async () => 0,
-    clearCache: async () => true,
-    updateConfig: async () => true,
+    getCacheSize: async () => {
+      try {
+        const keys = await apiListKeys('cache/');
+        let total = 0;
+        for (const k of keys.slice(0, 50)) {
+          const val = await apiGet(k);
+          if (val) total += new Blob([val]).size;
+        }
+        return total;
+      } catch { return 0; }
+    },
+    clearCache: async () => {
+      try {
+        // 清除 IndexedDB（zustand persist 缓存）
+        try {
+          const dbs = await indexedDB.databases();
+          for (const db of dbs) {
+            if (db.name) indexedDB.deleteDatabase(db.name);
+          }
+        } catch { /* empty */ }
+        // 清除 localStorage
+        const keysToRemove = Object.keys(localStorage).filter(k =>
+          k.startsWith('moyin-') || k.includes('store')
+        );
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+        return true;
+      } catch { return false; }
+    },
+    updateConfig: async (_config: unknown) => true,
     validateDataDir: async () => ({ valid: true }),
     moveData: async () => true,
     linkData: async () => true,
-    exportData: async () => true,
-    importData: async () => true,
+    exportData: async (_dir: string | null) => {
+      try {
+        const allKeys = await apiListKeys('');
+        const exportData: Record<string, string> = {};
+        for (const k of allKeys.slice(0, 200)) {
+          const val = await apiGet(k);
+          if (val) exportData[k] = val;
+        }
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'moyin-export-' + new Date().toISOString().slice(0, 10) + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        return { success: true };
+      } catch { return { success: false, error: '导出失败' }; }
+    },
+    importData: async () => {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (!file) { resolve({ success: false, error: 'No file' }); return; }
+          try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            let count = 0;
+            for (const [k, v] of Object.entries(data)) {
+              if (typeof v === 'string') {
+                await apiSet(k, v);
+                count++;
+              }
+            }
+            const keysToRemove = Object.keys(localStorage).filter(k =>
+              k.startsWith('moyin-') || k.includes('store')
+            );
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            try {
+              const dbs = await indexedDB.databases();
+              for (const db of dbs) {
+                if (db.name) indexedDB.deleteDatabase(db.name);
+              }
+            } catch { /* empty */ }
+            resolve({ success: true, path: `已导入 ${count} 条数据` });
+          } catch (e) {
+            resolve({ success: false, error: `导入失败: ${e}` });
+          }
+        };
+        input.click();
+      });
+    },
   };
 
-  // 5. appUpdater — mock
+  // 5. appUpdater — mock（WebUI 不需要自动更新）
   (window as any).appUpdater = {
     getCurrentVersion: async () => '0.2.3-web',
     checkForUpdates: async () => ({ hasUpdate: false, message: 'Web版无需检查更新' }),

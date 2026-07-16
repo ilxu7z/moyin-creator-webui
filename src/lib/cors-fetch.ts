@@ -26,12 +26,12 @@ function isViteDev(): boolean {
 /**
  * CORS 安全的 fetch 封装
  *
- * 在浏览器开发模式下，自动将请求代理到 Vite 开发服务器的
- * `/__api_proxy` 中间件，由服务端转发请求以绕过 CORS 限制。
+ * 在浏览器开发模式下，将请求通过 /__api_proxy 代理转发。
+ * targetUrl 和 headers 通过自定义头传递，body 直接转发。
  *
- * @param url    目标 URL（与原生 fetch 参数相同）
- * @param init   请求选项（与原生 fetch 参数相同）
- * @returns      Response（与原生 fetch 返回值相同）
+ * @param url    目标 URL
+ * @param init   请求选项
+ * @returns      Response
  */
 export async function corsFetch(
   url: string | URL,
@@ -47,22 +47,20 @@ export async function corsFetch(
   // 浏览器开发模式：走 Vite 代理
   const proxyUrl = `/__api_proxy?url=${encodeURIComponent(targetUrl)}`;
 
-  // 将原始 headers 序列化到 x-proxy-headers 头中
-  // 这样代理中间件可以把它们转发给目标服务器
-  const proxyHeaders = new Headers(init?.headers);
-
-  // 把原始 headers 打包进一个特殊头，代理端负责解包
-  const originalHeaders: Record<string, string> = {};
-  proxyHeaders.forEach((value, key) => {
-    originalHeaders[key] = value;
-  });
+  const headers: Record<string, string> = {};
+  if (init?.headers) {
+    const h = new Headers(init.headers);
+    h.forEach((v, k) => { headers[k] = v; });
+  }
 
   const proxyInit: RequestInit = {
-    ...init,
+    method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'x-proxy-headers': JSON.stringify(originalHeaders),
+      'x-target-method': init?.method || 'GET',
+      'x-target-url': targetUrl,
+      'x-target-headers': JSON.stringify(headers),
     },
+    body: init?.body,
   };
 
   return fetch(proxyUrl, proxyInit);

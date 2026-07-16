@@ -24,7 +24,10 @@ export interface IProvider {
   name: string;
   baseUrl: string;
   apiKey: string; // Supports comma or newline separated multiple keys
+  /** 用户选中的启用模型（服务映射中可选） */
   model: string[];
+  /** API 同步返回的全部模型（未筛选的原始列表，用于模型选择器） */
+  allSyncedModels?: string[];
   capabilities?: ModelCapability[];
   contextLimit?: number;
 }
@@ -95,8 +98,25 @@ export function classifyModelByName(modelName: string): ModelCapability[] {
   // "xxx-image-preview" 类（如 gemini-3-pro-image-preview）
   if (/image[- ]?preview/.test(name)) return ['image_generation'];
 
-  // ---- 视觉/识图模型 ----
+  // ---- 视觉/识图模型（按名称模式匹配）----
+  // 明确带 vision 的
   if (/vision/.test(name)) return ['text', 'vision'];
+  // VL 系列（视觉语言模型，如 qwen3-vl-*, qwen-vl-*）
+  if (/\bvl\b/.test(name)) return ['text', 'vision'];
+  // GPT-4o 系列（全系视觉）、o1/o3/o4
+  if (/\bgpt-4o\b/.test(name)) return ['text', 'vision'];
+  // Claude 系列（全系视觉）
+  if (/\bclaude[- ]/.test(name) && name !== 'claude-fable-5') return ['text', 'vision'];
+  // Gemini Pro/Flash 系列（不含 image generation 专用）
+  if (/gemini[- ](\d\.)?\d[- ]?(pro|flash)/.test(name) && !/image/.test(name)) return ['text', 'vision'];
+  // 图片识别类模型
+  if (/image.*recognize|image.*understand|kling-image-recognize/.test(name)) return ['text', 'vision'];
+  // DeepSeek V4, Qwen3-Max, QWQ, o1/o3/o4, GPT-5
+  if (/\bdeepseek-v4\b/.test(name)) return ['text', 'vision'];
+  if (/\bqwq\b/.test(name)) return ['text', 'vision'];
+  if (/\bqwen3[- ]?(max|plus)\b/.test(name)) return ['text', 'vision'];
+  if (/\bo[134]\b/.test(name)) return ['text', 'vision'];
+  if (/\bgpt-5[.\s]/.test(name) && !/codex|nano|mini/i.test(name)) return ['text', 'vision'];
 
   // ---- TTS / Audio 模型（不归入任何主分类）----
   if (/tts|whisper|audio/.test(name)) return ['text'];

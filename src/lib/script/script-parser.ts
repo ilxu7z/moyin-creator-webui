@@ -240,9 +240,9 @@ export async function callChatAPI(
     throw new Error('模型未配置');
   }
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
-  const url = /\/v\d+$/.test(normalizedBaseUrl)
-    ? `${normalizedBaseUrl}/chat/completions`
-    : `${normalizedBaseUrl}/v1/chat/completions`;
+  // 优先 /v1/chat/completions，404 时 fallback /chat/completions（兼容 Kuai 等 API）
+  const url = `${normalizedBaseUrl}/v1/chat/completions`;
+  const fallbackUrl = `${normalizedBaseUrl}/chat/completions`;
   
   // 从 Model Registry 查询模型限制（三层查找：缓存→静态→default）
   const modelLimits = getModelLimits(model);
@@ -320,11 +320,21 @@ export async function callChatAPI(
       console.log('[callChatAPI] 已关闭深度思考 (thinking: disabled)');
     }
 
-    const response = await corsFetch(url, {
+    let response = await corsFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
     });
+
+    // 404 fallback: 有些 API 不用 /v1/ 前缀（如 Kuai）
+    if (response.status === 404) {
+      console.log(`[callChatAPI] 404 on ${url}, retrying ${fallbackUrl}`);
+      response = await corsFetch(fallbackUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -348,11 +358,18 @@ export async function callChatAPI(
               `以 max_tokens=${correctedMaxTokens} 自动重试...`
             );
             const retryBody = { ...body, max_tokens: correctedMaxTokens };
-            const retryResp = await corsFetch(url, {
+            let retryResp = await corsFetch(url, {
               method: 'POST',
               headers,
               body: JSON.stringify(retryBody),
             });
+            if (retryResp.status === 404) {
+              retryResp = await corsFetch(fallbackUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(retryBody),
+              });
+            }
             if (retryResp.ok) {
               const retryData = await retryResp.json();
               const retryContent = retryData.choices?.[0]?.message?.content;
@@ -422,11 +439,18 @@ export async function callChatAPI(
           );
           
           const retryBody = { ...body, max_tokens: newMaxTokens };
-          const retryResp = await corsFetch(url, {
+          let retryResp = await corsFetch(url, {
             method: 'POST',
             headers,
             body: JSON.stringify(retryBody),
           });
+          if (retryResp.status === 404) {
+            retryResp = await corsFetch(fallbackUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(retryBody),
+            });
+          }
           
           if (retryResp.ok) {
             const retryData = await retryResp.json();

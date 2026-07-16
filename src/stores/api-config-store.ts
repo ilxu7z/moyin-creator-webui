@@ -767,8 +767,13 @@ export const useAPIConfigStore = create<APIConfigStore>()(
             console.log(`[APIConfig] Stored MemeFast metadata: ${Object.keys(memefastTypes).length} types, ${Object.keys(memefastTags).length} tags`);
           }
 
-          // Replace provider model list with merged & deduped data
-          get().updateProvider({ ...provider, model: modelIds });
+          // Store ALL synced models in allSyncedModels (for model picker)
+          // Keep existing user-selected model list intact
+          get().updateProvider({
+            ...provider,
+            model: provider.model.length > 0 ? provider.model : modelIds.slice(0, 8),
+            allSyncedModels: modelIds,
+          });
 
           console.log(`[APIConfig] Synced ${modelIds.length} models for ${provider.name} (from ${keys.length} keys)`);
           return { success: true, count: modelIds.length };
