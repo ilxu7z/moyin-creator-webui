@@ -8,7 +8,8 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { fileStorage } from '@/lib/indexed-db-storage';
 import type { ProviderId, ServiceType } from '@opencut/ai-core';
 import { 
   type IProvider, 
@@ -1443,6 +1444,24 @@ export const useAPIConfigStore = create<APIConfigStore>()(
         console.log(`[APIConfig] Migration complete: v${version}`);
         return result;
       },
+      storage: createJSONStorage(() => ({
+        getItem: async (name: string) => {
+          const raw = await fileStorage.getItem(name);
+          console.log(`[APIConfig:storage] getItem ${name}: ${raw ? raw.length : 'null'} chars`);
+          if (raw) {
+            try {
+              const p = JSON.parse(raw);
+              console.log(`[APIConfig:storage]   v${p.version}, providers=${p.state?.providers?.length}, concurrency=${p.state?.concurrency}`);
+            } catch(e) {}
+          }
+          return raw;
+        },
+        setItem: async (name: string, value: string) => {
+          console.log(`[APIConfig:storage] setItem ${name}: ${value.length} chars`);
+          return fileStorage.setItem(name, value);
+        },
+        removeItem: (name: string) => fileStorage.removeItem(name),
+      })),
       partialize: (state) => ({
         // Persist these fields
         providers: state.providers,

@@ -1096,6 +1096,7 @@ export const useScriptStore = create<ScriptStore>()(
     }),
     {
       name: "moyin-script-store",
+      version: 1,
       storage: createJSONStorage(() => createProjectScopedStorage('script')),
       partialize: (state) => {
         const pid = state.activeProjectId;

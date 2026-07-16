@@ -404,6 +404,7 @@ export const useSceneStore = create<SceneStore>()(
     }),
     {
       name: 'moyin-scene-store',
+      version: 1,
       storage: createJSONStorage(() => createSplitStorage<ScenePersistedState>(
         'scenes', splitSceneData, mergeSceneData, 'shareScenes'
       )),

@@ -4,6 +4,74 @@
 
 // src/lib/web-shim.ts
 // 浏览器运行时注入，mock Electron 特有 API，使前端代码可在纯浏览器中运行
+// 
+// WebUI 版数据持久化策略：
+//   fileStorage → 通过 HTTP API 写入本地文件系统 (local-storage-server.mjs)
+//   所有数据保存在 ~/Documents/moyin-creator/data/ 下
+//   换电脑、换浏览器、清缓存均不受影响
+
+// ==================== 本地存储 API 客户端 ====================
+
+const STORAGE_API_BASE = 'http://192.168.3.180:3001';
+
+async function apiGet(key: string): Promise<string | null> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`);
+  const data = await res.json();
+  return data.value ?? null;
+}
+
+async function apiSet(key: string, value: string): Promise<boolean> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json();
+  return data.success === true;
+}
+
+async function apiRemove(key: string): Promise<boolean> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  return data.success === true;
+}
+
+async function apiExists(key: string): Promise<boolean> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}/exists`);
+  const data = await res.json();
+  return data.exists === true;
+}
+
+async function apiListKeys(prefix: string): Promise<string[]> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/keys/${encodeURIComponent(prefix)}`);
+  const data = await res.json();
+  return data.keys || [];
+}
+
+async function apiListDirs(prefix: string): Promise<string[]> {
+  const allKeys = await apiListKeys(prefix);
+  const dirs = new Set<string>();
+  for (const k of allKeys) {
+    const rest = k.slice(prefix.length);
+    const slashIdx = rest.indexOf('/');
+    if (slashIdx !== -1) {
+      dirs.add(rest.slice(0, slashIdx));
+    }
+  }
+  return Array.from(dirs);
+}
+
+async function apiRemoveDir(prefix: string): Promise<boolean> {
+  const res = await fetch(`${STORAGE_API_BASE}/api/storage/dir/${encodeURIComponent(prefix)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  return data.success === true;
+}
+
+// ==================== fileStorage 实现 ====================
 
 type IDBFileStorage = {
   getItem: (key: string) => Promise<string | null>;
@@ -15,110 +83,16 @@ type IDBFileStorage = {
   removeDir: (prefix: string) => Promise<boolean>;
 };
 
-/** 打开/创建 IndexedDB 数据库 */
-function openDB(dbName: string, version: number, storeNames: string[]): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName, version);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      for (const name of storeNames) {
-        if (!db.objectStoreNames.contains(name)) {
-          db.createObjectStore(name);
-        }
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/** IndexedDB 实现的 fileStorage（替代 Electron 文件系统） */
-async function createIndexedDBFileStorage(): Promise<IDBFileStorage> {
-  const db = await openDB('moyin-creator-web', 1, ['kv']);
-
-  function getStore(mode: IDBTransactionMode = 'readonly'): IDBObjectStore {
-    const tx = db.transaction('kv', mode);
-    return tx.objectStore('kv');
-  }
-
+/** 创建基于本地 HTTP API 的 fileStorage */
+function createRemoteFileStorage(): IDBFileStorage {
   return {
-    getItem: async (key: string): Promise<string | null> => {
-      return new Promise((resolve, reject) => {
-        const request = getStore().get(key);
-        request.onsuccess = () => resolve(request.result ?? null);
-        request.onerror = () => reject(request.error);
-      });
-    },
-
-    setItem: async (key: string, value: string): Promise<boolean> => {
-      return new Promise((resolve, reject) => {
-        const request = getStore('readwrite').put(value, key);
-        request.onsuccess = () => resolve(true);
-        request.onerror = () => reject(request.error);
-      });
-    },
-
-    removeItem: async (key: string): Promise<boolean> => {
-      return new Promise((resolve, reject) => {
-        const request = getStore('readwrite').delete(key);
-        request.onsuccess = () => resolve(true);
-        request.onerror = () => reject(request.error);
-      });
-    },
-
-    exists: async (key: string): Promise<boolean> => {
-      const val = await this.getItem(key);
-      return val !== null;
-    },
-
-    listKeys: async (prefix: string): Promise<string[]> => {
-      return new Promise((resolve, reject) => {
-        const keys: string[] = [];
-        const req = getStore().openCursor();
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            if (typeof cursor.key === 'string' && cursor.key.startsWith(prefix)) {
-              keys.push(cursor.key);
-            }
-            cursor.continue();
-          } else {
-            resolve(keys);
-          }
-        };
-        req.onerror = () => reject(req.error);
-      });
-    },
-
-    listDirs: async (prefix: string): Promise<string[]> => {
-      const allKeys = await this.listKeys(prefix);
-      const dirs = new Set<string>();
-      for (const k of allKeys) {
-        const rest = k.slice(prefix.length);
-        const slashIdx = rest.indexOf('/');
-        if (slashIdx !== -1) {
-          dirs.add(rest.slice(0, slashIdx));
-        }
-      }
-      return Array.from(dirs);
-    },
-
-    removeDir: async (prefix: string): Promise<boolean> => {
-      const keys = await this.listKeys(prefix);
-      return new Promise((resolve, reject) => {
-        const store = getStore('readwrite');
-        if (keys.length === 0) return resolve(true);
-        let completed = 0;
-        for (const k of keys) {
-          const req = store.delete(k);
-          req.onsuccess = () => {
-            completed++;
-            if (completed >= keys.length) resolve(true);
-          };
-          req.onerror = () => reject(req.error);
-        }
-      });
-    },
+    getItem: apiGet,
+    setItem: apiSet,
+    removeItem: apiRemove,
+    exists: apiExists,
+    listKeys: apiListKeys,
+    listDirs: apiListDirs,
+    removeDir: apiRemoveDir,
   };
 }
 
@@ -139,7 +113,6 @@ async function resolveImageToDataURL(imagePath: string): Promise<string | null> 
       return null;
     }
   }
-  // local-image:// 或 file:// 无法在浏览器中解析，返回 null
   return null;
 }
 
@@ -148,8 +121,8 @@ export async function installWebShims(): Promise<void> {
   // 1. ipcRenderer — 移除
   (window as any).ipcRenderer = null;
 
-  // 2. fileStorage — IndexedDB 实现
-  const fs = await createIndexedDBFileStorage();
+  // 2. fileStorage — 本地 HTTP API（数据存到硬盘）
+  const fs = createRemoteFileStorage();
   (window as any).fileStorage = fs;
 
   // 3. imageStorage
@@ -175,7 +148,7 @@ export async function installWebShims(): Promise<void> {
     getAbsolutePath: async () => null,
   };
 
-  // 4. storageManager — mock（SettingsPanel 配置用）
+  // 4. storageManager — mock
   (window as any).storageManager = {
     getPaths: async () => ({ dataPath: '/browser/storage', cachePath: '/browser/cache' }),
     selectDirectory: async () => null,
@@ -253,8 +226,5 @@ export async function installWebShims(): Promise<void> {
     },
   };
 
-  console.log('[Web Shim] All browser shims installed');
+  console.log('[Web Shim] All browser shims installed (remote file storage mode)');
 }
-
-// Auto-install 由 main.tsx 中的 initApp() 主动调用，不再在此处自动执行
-// 避免在 zustand store 初始化前 window.fileStorage 尚未就绪

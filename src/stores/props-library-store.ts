@@ -8,7 +8,8 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { fileStorage } from '@/lib/indexed-db-storage';
 
 // 道具项
 export interface PropItem {
@@ -150,6 +151,7 @@ export const usePropsLibraryStore = create<PropsLibraryStore>()(
     }),
     {
       name: 'moyin-props-library',
+      storage: createJSONStorage(() => fileStorage),
       partialize: (state) => ({
         items: state.items,
         folders: state.folders,

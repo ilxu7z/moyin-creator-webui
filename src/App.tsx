@@ -8,6 +8,13 @@ import { UpdateDialog } from "@/components/UpdateDialog";
 import { useThemeStore } from "@/stores/theme-store";
 import { useAPIConfigStore } from "@/stores/api-config-store";
 import { useAppSettingsStore } from "@/stores/app-settings-store";
+import { useProjectStore } from "@/stores/project-store";
+import { useMediaStore } from "@/stores/media-store";
+import { useScriptStore } from "@/stores/script-store";
+import { useSceneStore } from "@/stores/scene-store";
+import { useCharacterLibraryStore } from "@/stores/character-library-store";
+import { useDirectorStore } from "@/stores/director-store";
+import { useSClassStore } from "@/stores/sclass-store";
 import { parseApiKeys } from "@/lib/api-key-manager";
 import { Loader2 } from "lucide-react";
 import { migrateToProjectStorage, recoverFromLegacy } from "@/lib/storage-migration";
@@ -22,11 +29,23 @@ function App() {
   const [startupUpdate, setStartupUpdate] = useState<AvailableUpdateInfo | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
-  // 启动时运行存储迁移 + 数据恢复
+  // 等待所有关键 store persist rehydrate 完成后，再执行迁移和数据恢复
   useEffect(() => {
     (async () => {
       try {
-        await useAppSettingsStore.persist.rehydrate();
+        // 等待所有 persist store 完成 hydrate
+        const stores = [
+          useAppSettingsStore,
+          useProjectStore,
+          useMediaStore,
+          useScriptStore,
+          useSceneStore,
+          useCharacterLibraryStore,
+          useDirectorStore,
+          useSClassStore,
+        ];
+        await Promise.allSettled(stores.map(s => s.persist.rehydrate()));
+        
         await migrateToProjectStorage();
         await recoverFromLegacy();
       } catch (err) {

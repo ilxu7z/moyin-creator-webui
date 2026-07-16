@@ -213,9 +213,18 @@ export function resolveVideoApiFormat(endpointTypes: string[] | undefined): Mode
 
 /**
  * Generate a UUID v4
+ * Uses crypto.randomUUID() when available (secure contexts),
+ * falls back to manual implementation for HTTP/insecure contexts.
  */
 export function generateId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback for insecure contexts (HTTP via IP address)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 }
 
 /**

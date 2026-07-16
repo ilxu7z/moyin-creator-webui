@@ -455,6 +455,7 @@ export const useCharacterLibraryStore = create<CharacterLibraryStore>()(
     }),
     {
       name: 'moyin-character-library',
+      version: 1,
       storage: createJSONStorage(() => createSplitStorage<CharPersistedState>(
         'characters', splitCharData, mergeCharData, 'shareCharacters'
       )),

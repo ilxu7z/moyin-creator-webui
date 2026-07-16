@@ -3,13 +3,15 @@
 // Commercial licensing available. See COMMERCIAL_LICENSE.md.
 /**
  * File Storage Adapter for Zustand
- * Uses Electron's file system for unlimited storage
- * Falls back to localStorage in browser
+ * 
+ * WebUI 版：所有数据通过 window.fileStorage（web-shim 提供）写入本地文件系统
+ * Electron 版：通过 Electron preload 的 fileStorage API 写入文件系统
+ * 
+ * 数据最终都落在本地硬盘上，不依赖浏览器存储。
  */
 
 import type { StateStorage } from 'zustand/middleware';
 
-// Type declarations for the fileStorage API exposed by preload
 declare global {
   interface Window {
     fileStorage?: {
@@ -24,188 +26,77 @@ declare global {
   }
 }
 
-const isElectron = (): boolean => {
-  return typeof window !== 'undefined' && !!window.fileStorage;
-};
-
-// Check if data has meaningful content (not just empty state)
-const hasRichData = (jsonStr: string | null): boolean => {
-  if (!jsonStr) return false;
-  try {
-    const data = JSON.parse(jsonStr);
-    const state = data.state || data;
-    
-    // Check common store patterns for meaningful data
-    if (state.projects && Array.isArray(state.projects) && state.projects.length > 1) return true;
-    if (state.splitScenes && Array.isArray(state.splitScenes) && state.splitScenes.length > 0) return true;
-    if (state.scenes && Array.isArray(state.scenes) && state.scenes.length > 0) return true;
-    if (state.episodes && Array.isArray(state.episodes) && state.episodes.length > 0) return true;
-    if (state.characters && Array.isArray(state.characters) && state.characters.length > 0) return true;
-    if (state.media && Array.isArray(state.media) && state.media.length > 0) return true;
-    
-    // For director store, check nested project data
-    if (state.projects && typeof state.projects === 'object') {
-      for (const projectId of Object.keys(state.projects)) {
-        const proj = state.projects[projectId];
-        if (proj.splitScenes && proj.splitScenes.length > 0) return true;
-        if (proj.screenplay) return true;
-      }
+/**
+ * 等待 window.fileStorage 就绪。
+ * 
+ * 关键问题：Zustand persist store 在模块 import 时就会被创建并自动 rehydrate，
+ * 但此时 initApp() 还没运行 → window.fileStorage 不存在 → 回退 localStorage → 丢数据。
+ * 
+ * 这个函数让 getItem 等待最多 30 秒直到 window.fileStorage 出现。
+ */
+const waitForFileStorage = async (timeoutMs: number = 30000): Promise<boolean> => {
+  if (typeof window === 'undefined') return false;
+  const start = Date.now();
+  while (!window.fileStorage) {
+    if (Date.now() - start > timeoutMs) {
+      console.warn('[Storage] Timed out waiting for window.fileStorage');
+      return false;
     }
-    
-    // Check data size as fallback (more than 1KB likely has real data)
-    return jsonStr.length > 1000;
-  } catch {
-    return jsonStr.length > 1000;
+    await new Promise(r => setTimeout(r, 50));
   }
+  return true;
 };
 
 export const fileStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
-    console.log(`[Storage] getItem: ${name}, isElectron: ${isElectron()}`);
-    if (isElectron()) {
+    // 等待 window.fileStorage 注入后再尝试读取
+    // Electron 环境 window.ipcRenderer 已存在，无需等待
+    if (!window.ipcRenderer) {
+      await waitForFileStorage();
+    }
+    if (window.fileStorage) {
       try {
-        // Get data from all sources
-        const fileData = await window.fileStorage!.getItem(name);
-        const localData = localStorage.getItem(name);
-        let idbData: string | null = null;
-        try {
-          idbData = await getFromIndexedDB(name);
-        } catch (e) {
-          // IndexedDB not available
-        }
-        
-        console.log(`[Storage] Data sizes for ${name}: file=${fileData?.length || 0}, local=${localData?.length || 0}, idb=${idbData?.length || 0}`);
-        
-        // Determine which data source has the richest data
-        const fileHasData = hasRichData(fileData);
-        const localHasData = hasRichData(localData);
-        const idbHasData = hasRichData(idbData);
-        
-        console.log(`[Storage] Rich data check for ${name}: file=${fileHasData}, local=${localHasData}, idb=${idbHasData}`);
-        
-        // Priority: localStorage > IndexedDB > file (for migration)
-        // If localStorage or IndexedDB has richer data, migrate it
-        if (localHasData && !fileHasData) {
-          console.log(`[Storage] Migrating ${name} from localStorage to file storage (richer data)...`);
-          await window.fileStorage!.setItem(name, localData!);
-          localStorage.removeItem(name);
-          console.log(`[Storage] Migration complete for ${name}`);
-          return localData;
-        }
-        
-        if (idbHasData && !fileHasData && !localHasData) {
-          console.log(`[Storage] Migrating ${name} from IndexedDB to file storage (richer data)...`);
-          await window.fileStorage!.setItem(name, idbData!);
-          await removeFromIndexedDB(name);
-          console.log(`[Storage] Migration complete for ${name}`);
-          return idbData;
-        }
-        
-        // Clean up old data if file storage has the data
-        if (fileHasData) {
-          if (localData) {
-            console.log(`[Storage] Cleaning up localStorage for ${name}`);
-            localStorage.removeItem(name);
-          }
-          if (idbData) {
-            console.log(`[Storage] Cleaning up IndexedDB for ${name}`);
-            await removeFromIndexedDB(name);
-          }
-          return fileData;
-        }
-        
-        // Return whatever we have
-        return fileData || localData || idbData || null;
+        const value = await window.fileStorage.getItem(name);
+        if (value !== null && value !== undefined) return value;
       } catch (error) {
-        console.error('File storage getItem error:', error);
+        console.error('[Storage] getItem error:', error);
       }
     }
-    // Fallback to localStorage (browser mode)
+    // 回退 localStorage
     return localStorage.getItem(name);
   },
 
   setItem: async (name: string, value: string): Promise<void> => {
-    console.log(`[Storage] setItem: ${name}, size: ${value.length} chars, isElectron: ${isElectron()}`);
-    if (isElectron()) {
+    if (window.fileStorage) {
       try {
-        const result = await window.fileStorage!.setItem(name, value);
-        console.log(`[Storage] File save result for ${name}:`, result);
+        await window.fileStorage.setItem(name, value);
         return;
       } catch (error) {
-        console.error('[Storage] File storage setItem error:', error);
+        console.error('[Storage] setItem error:', error);
       }
     }
-    // Fallback to localStorage
     try {
       localStorage.setItem(name, value);
     } catch (error) {
-      console.error('localStorage setItem error:', error);
+      console.error('[Storage] localStorage setItem error:', error);
     }
   },
 
   removeItem: async (name: string): Promise<void> => {
-    if (isElectron()) {
+    if (window.fileStorage) {
       try {
-        await window.fileStorage!.removeItem(name);
+        await window.fileStorage.removeItem(name);
         return;
       } catch (error) {
-        console.error('File storage removeItem error:', error);
+        console.error('[Storage] removeItem error:', error);
       }
     }
     localStorage.removeItem(name);
   },
 };
 
-// Helper to get data from IndexedDB (for migration)
-const getFromIndexedDB = (name: string): Promise<string | null> => {
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open('moyin-creator-db', 1);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('zustand-storage')) {
-          resolve(null);
-          return;
-        }
-        const transaction = db.transaction('zustand-storage', 'readonly');
-        const store = transaction.objectStore('zustand-storage');
-        const getRequest = store.get(name);
-        getRequest.onerror = () => resolve(null);
-        getRequest.onsuccess = () => resolve(getRequest.result ?? null);
-      };
-    } catch {
-      resolve(null);
-    }
-  });
-};
-
-const removeFromIndexedDB = (name: string): Promise<void> => {
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open('moyin-creator-db', 1);
-      request.onerror = () => resolve();
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('zustand-storage')) {
-          resolve();
-          return;
-        }
-        const transaction = db.transaction('zustand-storage', 'readwrite');
-        const store = transaction.objectStore('zustand-storage');
-        store.delete(name);
-        resolve();
-      };
-    } catch {
-      resolve();
-    }
-  });
-};
-
-// Migration helper (kept for backward compatibility, but migration now happens in getItem)
-export const migrateFromLocalStorage = async (_key: string): Promise<void> => {
-  // Migration now happens automatically in fileStorage.getItem
-};
-
-// For backward compatibility
+// 向后兼容导出
+/** @deprecated 迁移需手动触发，不再自动执行 */
+export const migrateFromLocalStorage = async (_key: string): Promise<void> => {};
+/** @deprecated 统一使用 fileStorage */
 export const indexedDBStorage = fileStorage;

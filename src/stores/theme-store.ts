@@ -2,7 +2,8 @@
 // Licensed under AGPL-3.0-or-later. See LICENSE for details.
 // Commercial licensing available. See COMMERCIAL_LICENSE.md.
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { fileStorage } from '@/lib/indexed-db-storage';
 
 type Theme = "light" | "dark";
 
@@ -21,6 +22,7 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: "moyin-theme",
+      storage: createJSONStorage(() => fileStorage),
     }
   )
 );

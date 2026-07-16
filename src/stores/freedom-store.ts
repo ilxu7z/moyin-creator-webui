@@ -3,7 +3,8 @@
 // Commercial licensing available. See COMMERCIAL_LICENSE.md.
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { fileStorage } from '@/lib/indexed-db-storage';
 
 // ==================== Types ====================
 
@@ -201,6 +202,7 @@ export const useFreedomStore = create<FreedomStore>()(
     }),
     {
       name: 'moyin-freedom',
+      storage: createJSONStorage(() => fileStorage),
       version: 1,
     }
   )

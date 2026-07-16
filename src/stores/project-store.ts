@@ -117,6 +117,7 @@ export const useProjectStore = create<ProjectStore>()(
     }),
     {
       name: "moyin-project-store",
+      version: 1,
       storage: createJSONStorage(() => fileStorage),
       partialize: (state) => ({
         projects: state.projects,
@@ -131,20 +132,24 @@ export const useProjectStore = create<ProjectStore>()(
           activeProjectId: DEFAULT_PROJECT.id,
         };
       },
-      onRehydrateStorage: () => (state) => {
+      onRehydrateStorage: () => async (state) => {
         if (!state) return;
+        
+        // 扫描磁盘 _p/ 目录恢复项目（在激活项目之前执行）
+        if (window.fileStorage?.listDirs) {
+          try {
+            await discoverProjectsFromDisk();
+          } catch (err) {
+            console.warn('[ProjectStore] Disk discovery failed:', err);
+          }
+        }
+        
         const project =
           state.projects.find((p) => p.id === state.activeProjectId) ||
           state.projects[0] ||
           null;
         state.activeProjectId = project?.id || null;
         state.activeProject = project;
-
-        // 异步扫描磁盘上 _p/ 目录，将遗漏的项目恢复到列表中
-        // 解决路径切换/导入/迁移后项目列表为空的问题
-        discoverProjectsFromDisk().catch((err) =>
-          console.warn('[ProjectStore] Disk discovery failed:', err)
-        );
       },
     }
   )
@@ -164,56 +169,39 @@ async function discoverProjectsFromDisk(): Promise<void> {
   if (!window.fileStorage?.listDirs) return;
 
   try {
-    // 列出 _p/ 下所有子目录名（每个子目录名就是一个 projectId）
     const diskProjectIds = await window.fileStorage.listDirs('_p');
     if (!diskProjectIds || diskProjectIds.length === 0) return;
 
+    // 过滤：只保留 UUID 格式的项目ID（跳过 _migrated, default-project 等）
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validIds = diskProjectIds.filter((id: string) => uuidPattern.test(id));
+    if (validIds.length === 0) return;
+
+    console.log('[ProjectStore] Disk projects found:', validIds.map((id: string) => id.substring(0, 8)));
+
     const { projects } = useProjectStore.getState();
-    const knownIds = new Set(projects.map((p) => p.id));
+    // 重建项目列表：先保留已有的有效项目，再加入磁盘上发现的新项目
+    const existingValid = projects.filter((p) => uuidPattern.test(p.id));
+    const knownIds = new Set(existingValid.map((p) => p.id));
+    const missingIds = validIds.filter((id: string) => !knownIds.has(id));
+    if (missingIds.length === 0 && existingValid.length === projects.length) return;
 
-    const missingIds = diskProjectIds.filter((id) => !knownIds.has(id));
-    if (missingIds.length === 0) return;
+    console.log('[ProjectStore] Merging projects: existing=' + existingValid.length + ', fromDisk=' + missingIds.length);
 
-    console.log(
-      `[ProjectStore] Found ${missingIds.length} projects on disk not in store:`,
-      missingIds.map((id) => id.substring(0, 8))
-    );
-
-    // 尝试从每个遗漏项目的 director / script store 文件中提取项目名
+    // 从 script 文件提取项目名称
     const recoveredProjects: Project[] = [];
     for (const pid of missingIds) {
-      let name = `恢复的项目 (${pid.substring(0, 8)})`;
+      let name = '恢复的项目';
       const createdAt = Date.now();
 
-      // 尝试从 script store 获取名称
       try {
-        const scriptRaw = await window.fileStorage.getItem(`_p/${pid}/script-store`);
+        const scriptRaw = await window.fileStorage.getItem('_p/' + pid + '/script');
         if (scriptRaw) {
           const parsed = JSON.parse(scriptRaw);
-          const state = parsed?.state ?? parsed;
-          // script-store 的 projects 字段中可能有项目信息
-          if (state?.projects?.[pid]?.title) {
-            name = state.projects[pid].title;
-          }
-        }
-      } catch { /* ignore */ }
-
-      // 尝试从 director store 获取创建时间等信息
-      try {
-        const directorRaw = await window.fileStorage.getItem(`_p/${pid}/director-store`);
-        if (directorRaw) {
-          const parsed = JSON.parse(directorRaw);
-          const state = parsed?.state ?? parsed;
-          if (state?.projects?.[pid]?.screenplay) {
-            // 有剧本内容，说明确实是有效项目
-            const screenplay = state.projects[pid].screenplay;
-            if (!name.includes('恢复的项目')) {
-              // 已经有名称了，不覆盖
-            } else if (screenplay) {
-              // 用剧本前几个字做临时名称
-              const preview = screenplay.substring(0, 20).replace(/\n/g, ' ').trim();
-              if (preview) name = preview + '...';
-            }
+          const pd = parsed?.state?.projectData;
+          if (pd?.rawScript) {
+            const preview = pd.rawScript.substring(0, 30).replace(/\n/g, ' ').trim();
+            if (preview) name = preview;
           }
         }
       } catch { /* ignore */ }
@@ -226,16 +214,22 @@ async function discoverProjectsFromDisk(): Promise<void> {
       });
     }
 
-    if (recoveredProjects.length > 0) {
-      useProjectStore.setState((state) => ({
-        projects: [...state.projects, ...recoveredProjects],
-      }));
-      console.log(
-        `[ProjectStore] Recovered ${recoveredProjects.length} projects from disk:`,
-        recoveredProjects.map((p) => `${p.id.substring(0, 8)}:${p.name}`)
-      );
-    }
+    // 更新 store：有效项目 + 新恢复的项目
+    useProjectStore.setState({
+      projects: [...existingValid, ...recoveredProjects],
+      // 如果有新项目且没有 active 项目，自动选中第一个
+      ...(getActiveId() ? {} : {
+        activeProjectId: (recoveredProjects[0] || existingValid[0])?.id || null,
+        activeProject: recoveredProjects[0] || existingValid[0] || null,
+      }),
+    });
+
+    console.log('[ProjectStore] Project list updated: ' + (existingValid.length + recoveredProjects.length) + ' projects');
   } catch (err) {
     console.error('[ProjectStore] discoverProjectsFromDisk error:', err);
+  }
+  
+  function getActiveId(): string | null {
+    return useProjectStore.getState().activeProjectId;
   }
 }

@@ -641,6 +641,7 @@ export const useMediaStore = create<MediaStore>()(
     }),
     {
       name: 'moyin-media-store',
+      version: 1,
       storage: createJSONStorage(() => createSplitStorage<MediaPersistedState>(
         'media', splitMediaData, mergeMediaData, 'shareMedia'
       )),
@@ -660,8 +661,20 @@ export const useMediaStore = create<MediaStore>()(
             const normalizedUrl = normalizeUrl(f.url);
             const normalizedThumbnail = normalizeUrl(f.thumbnailUrl);
             
-            // Strip non-persistent URLs: blob: (session-only) and data: (too large)
-            const isTransientUrl = (u?: string) => !u || u.startsWith('blob:') || u.startsWith('data:');
+            // Strip non-persistent URLs: blob: (session-only).
+            // In Electron, data: URLs are migrated to local files so we strip them.
+            // In Web mode, keep data: URLs since we have no local file system.
+            // Detect real Electron (not web-shim): Electron has ipcRenderer, web-shim sets fileStorage
+            const isRealElectron = typeof window !== 'undefined' && (window as any).ipcRenderer !== null;
+            const isTransientUrl = (u?: string) => {
+              if (!u) return true;
+              // blob: URLs are session-only, always strip
+              if (u.startsWith('blob:')) return true;
+              // data: URLs: keep in Web mode (IndexedDB persists them),
+              // strip in real Electron (migrateMediaDataUrls handles conversion to local files)
+              if (u.startsWith('data:')) return isRealElectron;
+              return false;
+            };
             
             return {
               ...f,
