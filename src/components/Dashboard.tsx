@@ -159,12 +159,9 @@ export function Dashboard() {
       // Per-project files (_p/{pid}/*.json) only exist after a store's setItem is called.
       // If data was loaded from legacy storage but never modified, the per-project files
       // won't exist. Force a switchProject to trigger rehydrate → state merge → persist write.
-      const currentPid = useProjectStore.getState().activeProjectId;
-      if (currentPid === projectId) {
-        // switchProject would no-op for same ID. Temporarily deactivate to force full cycle.
-        useProjectStore.getState().setActiveProject(null);
-      }
-      await switchProject(projectId);
+      // Use force=true instead of setActiveProject(null) — the null pattern triggers
+      // pid=null race conditions that can overwrite legacy recovery data (see project-storage.ts).
+      await switchProject(projectId, true);
       // Wait for all async IPC persist writes to complete
       await new Promise(r => setTimeout(r, 500));
 
@@ -243,8 +240,11 @@ export function Dashboard() {
         toast.warning('项目数据文件为空，仅复制了项目名称');
       }
 
-      // STEP 5: Reset activeProjectId so the next project open triggers a full switchProject.
-      useProjectStore.getState().setActiveProject(null);
+      // STEP 5: After duplicate, keep the source project active but reset per-store
+      // activeProjectId via switchProject so the next open triggers a full rehydrate.
+      // We do NOT use setActiveProject(null) — that's a data-loss race condition.
+      // Instead, just mark that a rehydrate is needed on next switch.
+      // The `force` parameter on switchProject handles same-ID reloading.
     } catch (err) {
       console.error('[Duplicate] Failed:', err);
       toast.error(`复制项目数据失败: ${(err as Error).message}`);

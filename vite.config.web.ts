@@ -55,6 +55,15 @@ function apiProxyPlugin(): Plugin {
             fetchHeaders.set(k, v);
           }
 
+          // CRITICAL: Forward the incoming Content-Type header for FormData uploads.
+          // When the browser sends a fetch() with FormData body, it auto-generates
+          // Content-Type: multipart/form-data; boundary=... which is required for the
+          // target server to parse the form fields correctly (e.g. file uploads to catbox).
+          const incomingContentType = req.headers['content-type'];
+          if (incomingContentType && !fetchHeaders.has('content-type')) {
+            fetchHeaders.set('content-type', incomingContentType);
+          }
+
           const resp = await fetch(targetUrl, {
             method: targetMethod,
             headers: fetchHeaders,

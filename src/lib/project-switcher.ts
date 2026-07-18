@@ -34,15 +34,33 @@ import { useSClassStore } from '@/stores/sclass-store';
  * that overwrote per-project files with empty/default data.
  * 
  * @param newProjectId - The project ID to switch to
+ * @param force - If true, re-run the full cycle even if newProjectId === current project.
+ *                Useful when loadProjectData() needs to ensure per-project files are persisted.
+ *                (Safe alternative to setActiveProject(null) which triggers race conditions.)
  * @returns Promise that resolves when all stores have been rehydrated
  */
-export async function switchProject(newProjectId: string): Promise<void> {
+export async function switchProject(newProjectId: string, force = false): Promise<void> {
   const currentId = useProjectStore.getState().activeProjectId;
   
-  // No-op if same project
-  if (currentId === newProjectId) return;
+  // No-op if same project (unless forced)
+  if (!force && currentId === newProjectId) return;
 
-  console.log(`[ProjectSwitcher] Switching from ${currentId?.substring(0, 8) ?? 'none'} to ${newProjectId.substring(0, 8)}`);
+  if (force && currentId === newProjectId) {
+    console.log(`[ProjectSwitcher] Force-reloading project ${newProjectId.substring(0, 8)} (same ID, full cycle)`);
+  } else {
+    console.log(`[ProjectSwitcher] Switching from ${currentId?.substring(0, 8) ?? 'none'} to ${newProjectId.substring(0, 8)}`);
+  }
+
+  // 1. Wait briefly for any pending persist writes to complete
+  //    (persist middleware fires setItem synchronously on state change,
+  //     but the actual IPC write is async)
+  await new Promise((r) => setTimeout(r, 50));
+
+  // 2. Update ONLY the project-store's activeProjectId
+  //    This controls which per-project files the storage adapters read/write.
+  //    DO NOT set activeProjectId on individual stores yet — that triggers persist
+  //    writes which would overwrite per-project files with empty data.
+  useProjectStore.getState().setActiveProject(newProjectId);
 
   // 1. Wait briefly for any pending persist writes to complete
   //    (persist middleware fires setItem synchronously on state change,

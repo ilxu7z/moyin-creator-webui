@@ -8,6 +8,7 @@
  */
 
 import { getFeatureConfig, getFeatureNotConfiguredMessage } from '@/lib/ai/feature-router';
+import { corsFetch } from '@/lib/cors-fetch';
 import { retryOperation } from '@/lib/utils/retry';
 import { resolveImageApiFormat } from '@/lib/api-key-manager';
 import { useAPIConfigStore } from '@/stores/api-config-store';
@@ -371,7 +372,7 @@ async function submitViaChatCompletions(
     const currentApiKey = keyManager?.getCurrentKey?.() || apiKey;
 
     try {
-      const resp = await fetch(endpoint, {
+      const resp = await corsFetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -579,7 +580,7 @@ async function submitImageTask(
       const rootBase = getRootBaseUrl(baseUrl);
       const endpoint = `${rootBase}${imagePaths.submit}`;
       try {
-        const response = await fetch(endpoint, {
+        const response = await corsFetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -714,7 +715,7 @@ async function pollTaskStatus(
       const url = new URL(rawUrl);
       url.searchParams.set('_ts', Date.now().toString());
 
-      const response = await fetch(url.toString(), {
+      const response = await corsFetch(url.toString(), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -831,7 +832,7 @@ export async function submitGridImageRequest(params: {
     // 每次重试动态取当前 key（利用 keyManager rotate 后的新 key）
     const currentApiKey = keyManager?.getCurrentKey?.() || apiKey;
     if (signal?.aborted) throw new Error('用户已取消');
-    const response = await fetch(endpoint, {
+    const response = await corsFetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -943,7 +944,7 @@ async function submitViaKlingImages(
 
   const data = await retryOperation(async () => {
     const currentApiKey = keyManager?.getCurrentKey?.() || apiKey;
-    const response = await fetch(`${rootBase}/${nativePath}`, {
+    const response = await corsFetch(`${rootBase}/${nativePath}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentApiKey}` },
       body: JSON.stringify(body),
@@ -982,7 +983,7 @@ async function submitViaKlingImages(
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval));
     const currentApiKey = keyManager?.getCurrentKey?.() || apiKey;
-    const pollResp = await fetch(pollUrl, {
+    const pollResp = await corsFetch(pollUrl, {
       headers: { 'Authorization': `Bearer ${currentApiKey}` },
     });
     if (!pollResp.ok) continue;
@@ -1037,7 +1038,7 @@ export async function imageUrlToBase64(url: string): Promise<string> {
   
   // Try direct fetch first
   try {
-    const response = await fetch(url, { mode: 'cors' });
+    const response = await corsFetch(url, { mode: 'cors' });
     if (response.ok) {
       const blob = await response.blob();
       return await convertBlobToBase64(blob);
@@ -1049,7 +1050,7 @@ export async function imageUrlToBase64(url: string): Promise<string> {
   // Fallback: use our API proxy to fetch the image
   try {
     const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-    const response = await fetch(proxyUrl);
+    const response = await corsFetch(proxyUrl);
     if (!response.ok) {
       throw new Error(`Proxy fetch failed: ${response.status}`);
     }

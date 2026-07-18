@@ -28,6 +28,63 @@ function getActiveProjectId(): string | null {
 }
 
 /**
+ * Safety check: does the data look like meaningful content (not empty/default)?
+ * Returns false for empty shells like {"activeProjectId":null} or {"activeProjectId":""}
+ * to prevent overwriting real data with empty state from race conditions.
+ */
+function isMeaningfulData(value: string): boolean {
+  if (value.length < 100) {
+    // Too small to contain real project data
+    try {
+      const parsed = JSON.parse(value);
+      const state = parsed?.state ?? parsed;
+      // Check if there's any meaningful content beyond an activeProjectId
+      const keys = Object.keys(state);
+      const hasContent = keys.some(k => {
+        if (k === 'activeProjectId') return false;
+        const v = state[k];
+        if (v === null || v === undefined) return false;
+        if (typeof v === 'string' && v.length === 0) return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        if (typeof v === 'object' && Object.keys(v).length === 0) return false;
+        return true;
+      });
+      if (!hasContent) return false;
+    } catch { return false; }
+  }
+  return true;
+}
+
+/**
+ * Size guard: refuse to write if new data is drastically smaller than existing.
+ * This catches the most common data-loss pattern: switching to a project with
+ * empty state overwriting kilobytes of real data with 44 bytes of null shell.
+ */
+async function safetyCheckBeforeWrite(key: string, newValue: string): Promise<void> {
+  try {
+    const hasExisting = await fileStorage.getItem(key);
+    if (hasExisting && hasExisting.length > 200 && newValue.length < 100) {
+      // Existing data has content, new data is too small — likely a race-condition write
+      // Only block if the new data is clearly empty/default, not if it's a legitimate minimization
+      if (!isMeaningfulData(newValue)) {
+        console.error(
+          `[ProjectStorage] ⚠️ REFUSED write to ${key}: ` +
+          `existing=${hasExisting.length}B → new=${newValue.length}B (empty shell). ` +
+          `This prevented a data loss event.`
+        );
+        throw new Error(
+          `SAFETY_BLOCK: Refusing to overwrite ${hasExisting.length}B of data ` +
+          `with ${newValue.length}B empty shell. Key: ${key}`
+        );
+      }
+    }
+  } catch (err: any) {
+    // Re-throw our safety errors; ignore read errors (file doesn't exist yet)
+    if (err?.message?.startsWith('SAFETY_BLOCK')) throw err;
+  }
+}
+
+/**
  * Get resource sharing settings from app-settings-store.
  */
 function getResourceSharing(): { shareCharacters: boolean; shareScenes: boolean; shareMedia: boolean } {
@@ -113,8 +170,19 @@ export function createProjectScopedStorage(storeName: string): StateStorage {
       const pid = dataProjectId || getActiveProjectId();
       
       if (!pid) {
-        // No project active, save to legacy location
-        await fileStorage.setItem(name, value);
+        // CRITICAL: Do NOT fall back to legacy monolithic file when pid is null/empty.
+        // Writing empty-shell data to the legacy key permanently destroys the recovery
+        // source for ALL projects. Instead, drop the write and log an error so the
+        // race condition can be traced.
+        //
+        // Root cause of data loss E2: setActiveProject(null) in Dashboard triggered
+        // persist writes with pid=null, which fell through to legacy, overwriting
+        // all project data with 44 bytes of {"activeProjectId":null}.
+        console.error(
+          `[ProjectStorage] ⚠️ REFUSED write: no activeProjectId, would overwrite legacy key ` +
+          `"${name}" with empty data. This is likely a race condition from ` +
+          `setActiveProject(null). Store: ${storeName}, data: ${value.substring(0, 100)}`
+        );
         return;
       }
 
@@ -128,6 +196,10 @@ export function createProjectScopedStorage(storeName: string): StateStorage {
       }
 
       const projectKey = `_p/${pid}/${storeName}`;
+
+      // Safety check: refuse to overwrite real data with an empty shell
+      await safetyCheckBeforeWrite(projectKey, value);
+
       console.log(`[ProjectStorage] Saving ${storeName} for project ${pid.substring(0, 8)} (${Math.round(value.length / 1024)}KB)`);
       await fileStorage.setItem(projectKey, value);
     },
@@ -135,7 +207,11 @@ export function createProjectScopedStorage(storeName: string): StateStorage {
     removeItem: async (name: string): Promise<void> => {
       const pid = getActiveProjectId();
       if (!pid) {
-        await fileStorage.removeItem(name);
+        // Same safety principle as setItem: never touch legacy key with null pid
+        console.warn(
+          `[ProjectStorage] Skipping removeItem for "${name}": no activeProjectId. ` +
+          `Legacy key was NOT touched to prevent data loss.`
+        );
         return;
       }
       const projectKey = `_p/${pid}/${storeName}`;
@@ -273,7 +349,12 @@ export function createSplitStorage<T = any>(
       const pid = getActiveProjectId();
       
       if (!pid) {
-        await fileStorage.setItem(name, value);
+        // CRITICAL: Same as createProjectScopedStorage — never fall back to legacy
+        // when pid is null/empty. Legacy keys are the recovery source for all projects.
+        console.error(
+          `[SplitStorage] ⚠️ REFUSED write: no activeProjectId, would overwrite legacy key ` +
+          `"${name}". Store: ${storeName}. This prevents permanent data loss from race conditions.`
+        );
         return;
       }
 
@@ -322,7 +403,10 @@ export function createSplitStorage<T = any>(
     removeItem: async (name: string): Promise<void> => {
       const pid = getActiveProjectId();
       if (!pid) {
-        await fileStorage.removeItem(name);
+        console.warn(
+          `[SplitStorage] Skipping removeItem for "${name}": no activeProjectId. ` +
+          `Legacy key was NOT touched to prevent data loss.`
+        );
         return;
       }
       const projectKey = `_p/${pid}/${storeName}`;

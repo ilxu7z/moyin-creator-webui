@@ -250,22 +250,18 @@ async function migrateTimelineStore(activeProjectId: string): Promise<void> {
  * If legacy has richer data, overwrite the per-project file.
  * 
  * This runs on every startup (fast: only reads and compares when needed).
+ * 
+ * Note: recovery does NOT depend on the _migrated flag. Migration flag can be
+ * lost (exists() 500 error, file deleted, etc.) but recovery should still run.
+ * It checks for actual data to recover, not metadata flags.
  */
 export async function recoverFromLegacy(): Promise<void> {
   if (!window.fileStorage) return;
 
-  // Only run if migration has already happened
-  try {
-    const flagExists = await window.fileStorage.exists(MIGRATION_FLAG_KEY);
-    if (!flagExists) return; // Migration hasn't run yet, nothing to recover
-  } catch {
-    return;
-  }
-
   console.log('[Recovery] Checking for data that needs recovery from legacy files...');
 
   try {
-    // Recover Record-based stores
+    // Recover Record-based stores (script, director)
     await recoverRecordStore('moyin-script-store', 'script', isScriptDataRich);
     await recoverRecordStore('moyin-director-store', 'director', isDirectorDataRich);
 

@@ -13,6 +13,7 @@ import { calculateGrid, type AspectRatio, type Resolution, RESOLUTION_PRESETS } 
 import { retryOperation } from "@/lib/utils/retry";
 import { delay, RATE_LIMITS } from "@/lib/utils/rate-limiter";
 import { submitGridImageRequest } from '@/lib/ai/image-generator';
+import { corsFetch } from '@/lib/cors-fetch';
 
 export interface StoryboardGenerationConfig {
   storyPrompt: string;
@@ -101,7 +102,7 @@ async function submitImageGenTask(
     // Use retry wrapper for 429 rate limit handling
     const data = await retryOperation(async () => {
     const endpoint = buildEndpoint(actualBaseUrl, 'images/generations');
-    const response = await fetch(endpoint, {
+    const response = await corsFetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +200,7 @@ async function submitZhipuImageTask(
     throw new Error('璇峰厛鍦ㄨ缃腑閰嶇疆鍥剧墖鐢熸垚鏈嶅姟鏄犲皠');
   }
   const endpoint = buildEndpoint(baseUrl, 'images/generations');
-  const response = await fetch(endpoint, {
+  const response = await corsFetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -265,7 +266,7 @@ async function pollTaskCompletion(
       const url = new URL(buildEndpoint(baseUrl, `tasks/${taskId}`));
       url.searchParams.set('_ts', Date.now().toString());
 
-      const response = await fetch(url.toString(), {
+      const response = await corsFetch(url.toString(), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -567,7 +568,7 @@ async function submitVideoGenTask(
   // Use retry wrapper for 429 rate limit handling
   const data = await retryOperation(async () => {
     const endpoint = buildEndpoint(actualBaseUrl, 'videos/generations');
-    const response = await fetch(endpoint, {
+    const response = await corsFetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -8,7 +8,7 @@
  * Scene creation controls: name, location, time, atmosphere, style, generate
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useSceneStore,
   type Scene,
@@ -231,8 +231,17 @@ export function GenerationPanel({ selectedScene, onSceneCreated }: GenerationPan
 
   // Handle pending data from script panel
   // 当从剧本跳转过来时，自动创建场景并进入联合图生成模式
+  // 用 ref 防 React StrictMode double-invoke
+  const pendingSceneKey = useRef<string | null>(null);
   useEffect(() => {
     if (!pendingSceneData) return;
+
+    console.log('🧪 [useEffect] pendingSceneData detected:', pendingSceneData.name, 'key:', `${pendingSceneData.name}|${pendingSceneData.location}|${pendingSceneData.time}`);
+
+    // 用数据内容生成唯一 key，防 StrictMode 重复执行
+    const key = `${pendingSceneData.name}|${pendingSceneData.location}|${pendingSceneData.time}`;
+    if (pendingSceneKey.current === key) return;
+    pendingSceneKey.current = key;
     
     // 立即捕获数据并清除，防止 React 严格模式下重复执行
     const data = pendingSceneData;
@@ -276,6 +285,7 @@ export function GenerationPanel({ selectedScene, onSceneCreated }: GenerationPan
       setStyleId(parsedStyleId);
 
       // 自动创建场景（包含专业设计字段）
+      console.log('🧪 [addScene] creating scene:', data.name, 'at', new Date().toISOString());
       const newId = addScene({
         name: data.name.trim(),
         location: data.location.trim(),

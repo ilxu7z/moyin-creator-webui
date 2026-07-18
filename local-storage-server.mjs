@@ -35,8 +35,11 @@ console.log(`[StorageServer] Data directory: ${DATA_DIR}`);
 // ==================== 工具函数 ====================
 
 function safeKey(key) {
-  // 防止路径遍历攻击，只允许字母数字、连字符、下划线、点号
-  return key.replace(/[^a-zA-Z0-9\-_./]/g, '_');
+  // 防止路径遍历攻击：替换路径遍历字符（连续点、反斜杠、空字节等）
+  // 保留 * 号（UUID 格式中可能出现）和中文等 Unicode 字符
+  let safe = key.replace(/\.\./g, '_'); // 防止父目录遍历
+  safe = safe.replace(/[\\\x00]/g, '_'); // 反斜杠和空字节
+  return safe;
 }
 
 function filePath(key) {
@@ -123,7 +126,8 @@ const server = http.createServer(async (req, res) => {
   try {
     // === PLAIN KEY OPERATIONS ===
     if (subResource !== 'keys' && subResource !== 'dir') {
-      const key = decodeURIComponent(subResource || '');
+      // 支持多段嵌套 key：_p/project-uuid/scenes
+      const key = decodeURIComponent(parts.slice(2).join('/') || '');
       if (!key) {
         sendError(res, 400, 'Missing key');
         return;
@@ -135,6 +139,28 @@ const server = http.createServer(async (req, res) => {
         case 'GET': {
           // GET /api/storage/:key
           // GET /api/storage/:key/exists
+          // GET /api/storage/:key/raw  — 返回原始图片数据（用于 img src）
+          if (parts[3] === 'raw') {
+            if (fs.existsSync(fp)) {
+              const raw = fs.readFileSync(fp, 'utf-8');
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed.data && parsed.data.startsWith('data:')) {
+                  // 提取 base64 数据
+                  const mime = parsed.mime || 'image/png';
+                  const b64 = parsed.data.split(',')[1] || parsed.data;
+                  const buf = Buffer.from(b64, 'base64');
+                  res.setHeader('Content-Type', mime);
+                  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+                  res.writeHead(200);
+                  res.end(buf);
+                  return;
+                }
+              } catch { /* not JSON, send raw */ }
+            }
+            sendError(res, 404, 'Image not found');
+            return;
+          }
           if (parts[3] === 'exists') {
             sendJSON(res, 200, { exists: fs.existsSync(fp) });
             return;
@@ -184,7 +210,7 @@ const server = http.createServer(async (req, res) => {
         sendError(res, 405, 'Method not allowed');
         return;
       }
-      const prefix = decodeURIComponent(parts[3] || '');
+      const prefix = decodeURIComponent(parts.slice(3).join('/') || '');
       const result = listKeys(DATA_DIR, prefix);
       sendJSON(res, 200, { success: true, keys: result });
       return;
@@ -196,7 +222,7 @@ const server = http.createServer(async (req, res) => {
         sendError(res, 405, 'Method not allowed');
         return;
       }
-      const prefix = decodeURIComponent(parts[3] || '');
+      const prefix = decodeURIComponent(parts.slice(3).join('/') || '');
       const count = removeDir(DATA_DIR, prefix);
       sendJSON(res, 200, { success: true, deleted: count });
       return;
@@ -258,9 +284,9 @@ function removeDir(baseDir, prefix) {
 
 // ==================== 启动 ====================
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[StorageServer] Listening on http://127.0.0.1:${PORT}`);
-  console.log(`[StorageServer] Health: http://127.0.0.1:${PORT}/healthz`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[StorageServer] Listening on http://0.0.0.0:${PORT}`);
+  console.log(`[StorageServer] Health: http://localhost:${PORT}/healthz`);
 });
 
 process.on('SIGINT', () => {
