@@ -39,7 +39,7 @@ lsof -i :5174  # Vite 是否已在运行
 |------|------|-----------|
 | 本机浏览器 | `http://localhost:5174` | 可以用 `open http://localhost:5174` |
 | 局域网其他设备 | `http://192.168.3.180:5174` | 发给用户时用这个 |
-| 给用户发 WebChat 内嵌 | **不能直接用 `https://192.168.3.180/chat?session=***`** | 需确认 Gateway 已配置 `/api/storage` 反代 |
+| 给用户发 WebChat 内嵌 | ⛔ **禁止！** Vite JS module / HMR / API 均不通，会报"应用初始化失败" | 用浏览器直连 |
 
 ### 4. 杀掉进程的正确方式
 
