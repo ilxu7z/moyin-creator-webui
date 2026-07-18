@@ -12,40 +12,29 @@
 
 // ==================== 本地存储 API 客户端 ====================
 
-// 存储服务基地址：多种部署场景自动适配
-// - 场景 A: Vite dev 直连 → http://{hostname}:3001（走 Vite 代理或直接连接）
-// - 场景 B: Nginx 同端口部署 → window.location.origin（存储服务和前端同一端口）
-// - 场景 C: 通过反向代理/HTTPS 访问 Vite（如 https://192.168.3.180/chat?session=...）
-//           此时 Vite 在 :5174 但无法从浏览器端口判断 → 默认用 localhost:3001
-// - 场景 D: 生产环境，存储服务独立端口（罕见）→ 检查是否可配置
+// 存储服务基地址：统一走 Vite 同源代理，无论从何处访问都安全
+//
+// 核心原则：不使用绝对 URL，改用相对路径 /api/storage
+// Vite 的 server.proxy 已将 /api/storage → localhost:3001
+// 所以不管浏览器从哪入口，请求都会经过 Vite → 存储服务，不丢数据。
+//
+// - localhost:5174       → fetch('/api/storage/...') → Vite proxy → :3001
+// - 192.168.3.180:5174   → 同上
+// - https://IP/chat?...   → 同上（请求到 Vite 后转 proxy）
+// - 生产环境 Nginx       → Nginx 需配 /api/storage 转 :3001
 function resolveStorageBase(): string {
   if (typeof window !== 'undefined') {
-    const { hostname, port, protocol } = window.location;
-
-    // 场景 A: Vite 端口直接访问
-    if (port === '5174' || port === '4173') {
-      return `http://${hostname}:3001`;
-    }
-
-    // 场景 B & C: 同源访问（HTTPS/80/443 等非 Vite 端口）
-    // 先尝试同源（Nginx 可能代理了 /api/storage 到 3001）
-    // 但如果同源没有存储服务，就需要明确配置
-    
-    // 检查是否有显式配置的存储地址
+    // 显式配置优先（用于生产环境独立部署）
     const configured = getEnv('VITE_STORAGE_URL');
     if (configured) return configured;
-
-    // 默认：同端口部署（Nginx 反向代理 /api/storage → localhost:3001）
-    // ⚠️ 如果 Vite 通过非标准反向代理访问（如 https://IP/chat?session=...），
-    //    需要确保该代理也转发了 /api/storage 请求到 3001，否则数据写入会静默失败
-    return window.location.origin;
   }
-  return 'http://localhost:3001';
+  // 默认：相对路径，走 Vite proxy → localhost:3001
+  return '';
 }
 
 const STORAGE_API_BASE = resolveStorageBase();
 
-console.log('[Web Shim] Storage API base:', STORAGE_API_BASE, '| from:', typeof window !== 'undefined' ? window.location.href : 'SSR');
+console.log('[Web Shim] Storage API base:', STORAGE_API_BASE || '(relative — Vite proxy)', '| from:', typeof window !== 'undefined' ? window.location.href : 'SSR');
 
 async function apiGet(key: string): Promise<string | null> {
   try {
