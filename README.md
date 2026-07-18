@@ -17,7 +17,7 @@ cd ~/Projects/moyin-creator-webui && npm run dev
 
 验证：
 ```bash
-curl -s http://localhost:3001/healthz  # → {"status":"ok"}
+curl -s http://localhost:3002/healthz  # → {"status":"ok"}
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # → 200
 ```
 
@@ -25,7 +25,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # → 200
 
 | 命令 | 作用 | 删数据？ |
 |------|------|---------|
-| `npm run dev` | 一键启动：存储服务(3001) + Vite(5174) | ❌ |
+| `npm run dev` | 一键启动：存储服务(3002) + Vite(5174) | ❌ |
 | `npm run storage` | 仅启动存储服务 | ❌ |
 | `npm run dev:web` | 仅启动 Vite | ❌ |
 | `npm run build` | 生产构建 | ❌ |
@@ -38,7 +38,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # → 200
 
 | 服务 | 端口 | 说明 | 数据 |
 |------|------|------|------|
-| `local-storage-server.mjs` | 3001 | 数据持久化 | `~/Documents/moyin-creator/data/` |
+| `local-storage-server.mjs` | 3002 | 数据持久化 | `~/Documents/moyin-creator/data/` |
 | Vite 开发服务器 | 5174 | 前端热更新 + 反向代理 | 无 |
 
 ### 数据安全
@@ -52,11 +52,11 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # → 200
 
 | 浏览器地址 | 存储连接 | 是否正常 |
 |-----------|---------|---------|
-| `http://localhost:5174` | `http://localhost:3001` | ✅ Vite dev 直连 |
-| `http://192.168.3.180:5174` | `http://192.168.3.180:3001` | ✅ 局域网访问 |
-| `https://192.168.3.180/chat?session=...` | `https://192.168.3.180`（同源） | ⚠️ 需反向代理转发 `/api/storage` → `localhost:3001` |
+| `http://localhost:5174` | `http://localhost:3002` | ✅ Vite dev 直连 |
+| `http://192.168.3.180:5174` | `http://192.168.3.180:3002` | ✅ 局域网访问 |
+| `https://192.168.3.180/chat?session=...` | `https://192.168.3.180`（同源） | ⚠️ 需反向代理转发 `/api/storage` → `localhost:3002` |
 
-> ⚠️ 通过反向代理（如 OpenClaw Gateway）访问时，若代理未转发 `/api/storage` 路由到 `localhost:3001`，数据写入会**静默失败**。检查 F12 控制台是否有 `[Storage]` 错误日志。
+> ⚠️ 通过反向代理（如 OpenClaw Gateway）访问时，若代理未转发 `/api/storage` 路由到 `localhost:3002`，数据写入会**静默失败**。检查 F12 控制台是否有 `[Storage]` 错误日志。
 
 ## 文档
 

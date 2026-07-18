@@ -26,12 +26,12 @@ npm run dev
 ### 2. 启动前检查
 
 ```bash
-lsof -i :3001  # 存储服务是否已在运行
+lsof -i :3002  # 存储服务是否已在运行
 lsof -i :5174  # Vite 是否已在运行
 ```
 
 - 如果二者都在运行 → 直接访问 `http://localhost:5174`，无需重启
-- 如果只有 3001 在运行 → `npm run dev:web` 启动 Vite
+- 如果只有 3002 在运行 → `npm run dev:web` 启动 Vite
 - 如果只有 5174 在运行 → 杀掉后 `npm run dev`
 - 如果都不在 → `npm run dev`
 
@@ -47,7 +47,7 @@ lsof -i :5174  # Vite 是否已在运行
 
 ```bash
 # 杀掉存储服务
-kill $(lsof -ti :3001)
+kill $(lsof -ti :3002)
 
 # 杀掉 Vite
 kill $(lsof -ti :5174)
@@ -60,7 +60,7 @@ kill $(lsof -ti :5174)
 | 规则 | 说明 |
 |------|------|
 | **绝不** `rm -rf ~/Documents/moyin-creator/` | 用户全部项目数据在此 |
-| **绝不**在存储服务未就绪时操作数据 | `lsof -i :3001` 必须有 node 监听 |
+| **绝不**在存储服务未就绪时操作数据 | `lsof -i :3002` 必须有 node 监听 |
 | 删项目数据走脚本 | `npm run wipe-data`（三重确认） |
 | 如需卸载重装 | `npm run uninstall` → `git clone` → `npm install` |
 | 备份数据 | `npm run backup` |

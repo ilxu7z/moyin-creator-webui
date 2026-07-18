@@ -6,7 +6,7 @@
  * 前端通过此 API 读写数据，而不是 IndexedDB/localStorage。
  * 
  * 启动: node local-storage-server.mjs [--port PORT] [--data-dir DIR]
- * 默认端口: 3001
+ * 默认端口: 3002
  * 默认数据目录: ~/Documents/moyin-creator/data
  */
 
@@ -23,7 +23,7 @@ const getArg = (flag, def) => {
   return idx >= 0 ? args[idx + 1] : def;
 };
 
-const PORT = parseInt(getArg('--port', '3001'), 10);
+const PORT = parseInt(getArg('--port', '3002'), 10);
 const DATA_DIR = getArg('--data-dir', path.join(homedir(), 'Documents', 'moyin-creator', 'data'));
 
 // ==================== 初始化 ====================

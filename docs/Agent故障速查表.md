@@ -8,7 +8,7 @@
 
 | 可能原因 | 验证方法 | 修复 |
 |---------|---------|------|
-| 存储服务未启动或已死 | `lsof -i :3001` 无输出 | `npm run dev` 重启 |
+| 存储服务未启动或已死 | `lsof -i :3002` 无输出 | `npm run dev` 重启 |
 | Vite proxy 未配置 `/api/storage` | `curl http://localhost:5174/api/storage/_migrated/exists` | 检查 `vite.config.web.ts` 的 `server.proxy` |
 | 数据目录被删 | `ls ~/Documents/moyin-creator/data/_p/` | 从备份恢复或重建 |
 | 反向代理未转发存储请求 | F12 控制台有 `[Storage] SET` 错误 | 用 `localhost:5174` 直连 |
@@ -25,7 +25,7 @@
 ### 症状：端口冲突
 
 ```bash
-lsof -i :3001  # 看 PID 和命令名
+lsof -i :3002  # 看 PID 和命令名
 lsof -i :5174
 ```
 
@@ -36,7 +36,7 @@ lsof -i :5174
 ### 症状：Vite 报 502/504
 
 - 存储服务可能刚被 kill 或挂了
-- `lsof -i :3001` 确认存储服务状态
+- `lsof -i :3002` 确认存储服务状态
 - 如果存储服务跑了但 502 → 看终端日志，可能是路径冲突
 
 ### 症状：Vite hot reload 不工作
@@ -50,7 +50,7 @@ lsof -i :5174
 
 ```bash
 # 直接测试存储服务
-curl http://localhost:3001/healthz
+curl http://localhost:3002/healthz
 # 预期：{"status":"ok","dataDir":"...","dataWritable":true}
 
 # 通过 Vite proxy 测试
@@ -58,8 +58,8 @@ curl http://localhost:5174/api/storage/_migrated/exists
 # 预期：{"exists":true}
 ```
 
-- 如果 3001 正常但 5174 返回 Not Found → Vite proxy 没配 `/api/storage`
-- 如果 3001 就不通 → 存储服务没启动
+- 如果 3002 正常但 5174 返回 Not Found → Vite proxy 没配 `/api/storage`
+- 如果 3002 就不通 → 存储服务没启动
 
 ### 症状：Healthz 报告 warnings
 

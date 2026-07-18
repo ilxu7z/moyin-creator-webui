@@ -97,11 +97,11 @@ export default defineConfig({
     port: 5174,
     host: '0.0.0.0',
     proxy: {
-      // 将 /api/storage 代理到本地存储服务（端口 3001）
+      // 将 /api/storage 代理到本地存储服务（端口 3002）
       // 这样无论从 localhost、IP、还是反向代理访问，只要请求到了 Vite
       // 存储请求就会自动转发到存储服务，不会因为 URL 不同而丢失数据
       '/api/storage': {
-        target: 'http://127.0.0.1:3001',
+        target: 'http://127.0.0.1:3002',
         changeOrigin: true,
       },
     },

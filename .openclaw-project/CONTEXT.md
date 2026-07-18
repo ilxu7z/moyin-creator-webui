@@ -7,7 +7,7 @@
 不在本项目目录内: cd ~/Projects/moyin-creator-webui && npm run dev
 
 npm run dev 自动：
-  1. 先启动存储服务 → 端口 3001
+  1. 先启动存储服务 → 端口 3002
   2. 等待就绪后启动 Vite → 端口 5174
 
 访问地址: http://localhost:5174
@@ -24,7 +24,7 @@ npm run dev 自动：
 ### 启动后验证
 
 ```bash
-curl -s http://localhost:3001/healthz  # 存储服务 → {"status":"ok"}
+curl -s http://localhost:3002/healthz  # 存储服务 → {"status":"ok"}
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # Vite → 200
 ```
 
@@ -50,7 +50,7 @@ AI 驱动的动漫/短剧分镜创作工具，从 Electron 桌面版迁移到 We
 ## 架构
 
 - **前端**: Vite 5174 + React 18 + TypeScript + Tailwind CSS 4 + shadcn/ui (Radix)
-- **存储**: local-storage-server.mjs（HTTP 存储服务，端口 3001，数据存 ~/Documents/moyin-creator/data）
+- **存储**: local-storage-server.mjs（HTTP 存储服务，端口 3002，数据存 ~/Documents/moyin-creator/data）
 - **API**: Kuai API (MLL) 代理通过 Vite dev server 中间件 `/__api_proxy`
 - **版本**: v0.2.3
 
@@ -58,7 +58,7 @@ AI 驱动的动漫/短剧分镜创作工具，从 Electron 桌面版迁移到 We
 
 | 端口 | 服务 | 命令 |
 |------|------|------|
-| **3001** | 存储服务 (local-storage-server.mjs) | node local-storage-server.mjs |
+| **3002** | 存储服务 (local-storage-server.mjs) | node local-storage-server.mjs |
 | **5174** | Vite 开发服务器 | npx vite --config vite.config.web.ts --host 0.0.0.0 |
 
 🔴 **不要和以下端口混淆：**

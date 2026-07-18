@@ -3,7 +3,7 @@
  * 魔因漫创 WebUI 开发启动器
  * 
  * 按顺序启动：
- *   1. 本地存储服务 (local-storage-server.mjs, 端口 3001)
+ *   1. 本地存储服务 (local-storage-server.mjs, 端口 3002)
  *   2. Vite 开发服务器 (端口 5174)
  * 
  * 自动处理进程清理和数据保护。
@@ -12,7 +12,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 
-const STORAGE_PORT = 3001;
+const STORAGE_PORT = 3002;
 const VITE_PORT = 5174;
 
 /** 检查端口是否空闲 */

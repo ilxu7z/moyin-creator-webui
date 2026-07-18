@@ -17,7 +17,7 @@ echo ""
 
 # ── 1. 停止运行中的服务 ──
 echo "📦 停止运行中的服务..."
-kill $(lsof -ti :3001) 2>/dev/null && echo "   存储服务(3001) 已停止" || echo "   存储服务(3001) 未运行"
+kill $(lsof -ti :3002) 2>/dev/null && echo "   存储服务(3002) 已停止" || echo "   存储服务(3002) 未运行"
 kill $(lsof -ti :5174) 2>/dev/null && echo "   Vite(5174) 已停止" || echo "   Vite(5174) 未运行"
 echo ""
 

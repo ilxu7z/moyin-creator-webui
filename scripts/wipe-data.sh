@@ -18,7 +18,7 @@ echo ""
 echo "📦 检查运行中的服务..."
 STORAGE_DEAD=0
 VITE_DEAD=0
-kill $(lsof -ti :3001) 2>/dev/null && STORAGE_DEAD=1
+kill $(lsof -ti :3002) 2>/dev/null && STORAGE_DEAD=1
 kill $(lsof -ti :5174) 2>/dev/null && VITE_DEAD=1
 if [ $STORAGE_DEAD -eq 1 ] || [ $VITE_DEAD -eq 1 ]; then
   echo "   已停止运行中的服务"

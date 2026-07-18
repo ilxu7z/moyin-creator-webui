@@ -15,20 +15,20 @@
 // 存储服务基地址：统一走 Vite 同源代理，无论从何处访问都安全
 //
 // 核心原则：不使用绝对 URL，改用相对路径 /api/storage
-// Vite 的 server.proxy 已将 /api/storage → localhost:3001
+// Vite 的 server.proxy 已将 /api/storage → localhost:3002
 // 所以不管浏览器从哪入口，请求都会经过 Vite → 存储服务，不丢数据。
 //
-// - localhost:5174       → fetch('/api/storage/...') → Vite proxy → :3001
+// - localhost:5174       → fetch('/api/storage/...') → Vite proxy → :3002
 // - 192.168.3.180:5174   → 同上
 // - https://IP/chat?...   → 同上（请求到 Vite 后转 proxy）
-// - 生产环境 Nginx       → Nginx 需配 /api/storage 转 :3001
+// - 生产环境 Nginx       → Nginx 需配 /api/storage 转 :3002
 function resolveStorageBase(): string {
   if (typeof window !== 'undefined') {
     // 显式配置优先（用于生产环境独立部署）
     const configured = getEnv('VITE_STORAGE_URL');
     if (configured) return configured;
   }
-  // 默认：相对路径，走 Vite proxy → localhost:3001
+  // 默认：相对路径，走 Vite proxy → localhost:3002
   return '';
 }
 
