@@ -11,7 +11,10 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --config vite.config.web.ts --host 0.0.0.0",
     "build": "tsc && vite build --config vite.config.web.ts",
-    "preview": "vite preview --config vite.config.web.ts --host 0.0.0.0"
+    "preview": "vite preview --config vite.config.web.ts --host 0.0.0.0",
+    "backup": "bash scripts/backup-data.sh",
+    "wipe-data": "bash scripts/wipe-data.sh",
+    "uninstall": "bash scripts/uninstall.sh"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.2.16",
