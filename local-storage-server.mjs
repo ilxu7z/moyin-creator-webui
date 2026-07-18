@@ -47,9 +47,41 @@ function filePath(key) {
 }
 
 // 确保文件所在目录存在
+// 返回完整文件路径，如写入失败（目录名和文件名冲突）则抛出异常
 function ensureDir(key) {
   const fp = filePath(key);
   const dir = path.dirname(fp);
+
+  // ⚠️ 安全检查：如果目标路径上存在同名目录（而非文件），说明有冲突
+  // 例如：_p/_migrated 同时作为目录和 JSON 文件名存在
+  // 这种情况下 fs.writeFileSync 会静默失败（ENOENT 或 EISDIR）
+  const segments = safeKey(key).split('/');
+  let currentPath = DATA_DIR;
+  for (let i = 0; i < segments.length; i++) {
+    currentPath = path.join(currentPath, segments[i]);
+    // 检查路径上每个组件：不能是 JSON 文件（非最终段）
+    if (i < segments.length - 1) {
+      const jsonPath = currentPath + '.json';
+      if (fs.existsSync(jsonPath) && fs.statSync(jsonPath).isFile()) {
+        throw new Error(
+          `Path conflict: "${key}" cannot be created because ` +
+          `"${path.relative(DATA_DIR, jsonPath)}" exists as a file. ` +
+          `This prevents directory/file name collision (e.g., _p/_migrated vs _p/_migrated.json).`
+        );
+      }
+    }
+  }
+  // 同样检查：最终路径不能已作为目录存在
+  if (fs.existsSync(dir + '/' + segments[segments.length - 1])) {
+    const conflictDir = dir + '/' + segments[segments.length - 1];
+    if (fs.statSync(conflictDir).isDirectory()) {
+      throw new Error(
+        `Path conflict: cannot create file "${path.relative(DATA_DIR, fp)}" ` +
+        `because directory "${path.relative(DATA_DIR, conflictDir)}" already exists.`
+      );
+    }
+  }
+
   fs.mkdirSync(dir, { recursive: true });
   return fp;
 }
@@ -109,9 +141,44 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const parts = url.pathname.split('/').filter(Boolean); // ['api', 'storage', ...]
   
-  // 健康检查
+  // 健康检查（增强：返回数据目录状态和冲突检测）
   if (url.pathname === '/healthz') {
-    sendJSON(res, 200, { status: 'ok', dataDir: DATA_DIR });
+    const status = { status: 'ok', dataDir: DATA_DIR };
+    try {
+      // 检查数据目录可读写性
+      const testFile = path.join(DATA_DIR, '.healthz-test');
+      fs.writeFileSync(testFile, 'ok', 'utf-8');
+      fs.unlinkSync(testFile);
+      status.dataWritable = true;
+    } catch {
+      status.dataWritable = false;
+    }
+    try {
+      // 检测 _p/_migrated/ 目录冲突（常见 bugs）
+      const conflictDir = path.join(DATA_DIR, '_p', '_migrated');
+      if (fs.existsSync(conflictDir) && fs.statSync(conflictDir).isDirectory()) {
+        status.warnings = status.warnings || [];
+        status.warnings.push('_p/_migrated directory conflict: directory exists alongside _p/_migrated.json file');
+      }
+      // 检测空的 per-project 目录
+      const pDir = path.join(DATA_DIR, '_p');
+      if (fs.existsSync(pDir)) {
+        const entries = fs.readdirSync(pDir, { withFileTypes: true });
+        const emptyDirs = [];
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.name.startsWith('_migrated')) {
+            const subEntries = fs.readdirSync(path.join(pDir, entry.name));
+            const hasJson = subEntries.some(f => f.endsWith('.json'));
+            if (!hasJson) emptyDirs.push(entry.name.substring(0, 8));
+          }
+        }
+        if (emptyDirs.length > 0) {
+          status.warnings = status.warnings || [];
+          status.warnings.push(`Empty per-project directories (data may be lost): ${emptyDirs.join(', ')}`);
+        }
+      }
+    } catch {}
+    sendJSON(res, 200, status);
     return;
   }
 
@@ -127,11 +194,22 @@ const server = http.createServer(async (req, res) => {
     // === PLAIN KEY OPERATIONS ===
     if (subResource !== 'keys' && subResource !== 'dir') {
       // 支持多段嵌套 key：_p/project-uuid/scenes
-      const key = decodeURIComponent(parts.slice(2).join('/') || '');
-      if (!key) {
+      // 特殊后缀：/exists, /raw 从路径中剥离，不作为 key 的一部分
+      let rawKey = decodeURIComponent(parts.slice(2).join('/') || '');
+      if (!rawKey) {
         sendError(res, 400, 'Missing key');
         return;
       }
+
+      let subAction = null; // 'raw' | 'exists' | null
+      if (rawKey.endsWith('/exists')) {
+        subAction = 'exists';
+        rawKey = rawKey.slice(0, -7);
+      } else if (rawKey.endsWith('/raw')) {
+        subAction = 'raw';
+        rawKey = rawKey.slice(0, -4);
+      }
+      const key = rawKey;
 
       const fp = ensureDir(key);
 
@@ -140,13 +218,12 @@ const server = http.createServer(async (req, res) => {
           // GET /api/storage/:key
           // GET /api/storage/:key/exists
           // GET /api/storage/:key/raw  — 返回原始图片数据（用于 img src）
-          if (parts[3] === 'raw') {
+          if (subAction === 'raw') {
             if (fs.existsSync(fp)) {
               const raw = fs.readFileSync(fp, 'utf-8');
               try {
                 const parsed = JSON.parse(raw);
                 if (parsed.data && parsed.data.startsWith('data:')) {
-                  // 提取 base64 数据
                   const mime = parsed.mime || 'image/png';
                   const b64 = parsed.data.split(',')[1] || parsed.data;
                   const buf = Buffer.from(b64, 'base64');
@@ -161,8 +238,10 @@ const server = http.createServer(async (req, res) => {
             sendError(res, 404, 'Image not found');
             return;
           }
-          if (parts[3] === 'exists') {
-            sendJSON(res, 200, { exists: fs.existsSync(fp) });
+          if (subAction === 'exists') {
+            // exists should NOT create directories — use filePath directly
+            const existsFp = filePath(key);
+            sendJSON(res, 200, { exists: fs.existsSync(existsFp) });
             return;
           }
           if (fs.existsSync(fp)) {

@@ -12,7 +12,26 @@
 
 // ==================== 本地存储 API 客户端 ====================
 
-const STORAGE_API_BASE = 'http://192.168.3.180:3001';
+// 存储服务基地址：同端口（Vite 代理转发），或运行时自动检测
+// - Vite dev: 通过 /__api_proxy 同源代理，无 CORS
+// - 生产部署: 同源部署时直接用 /api，否则回退到 localhost:3001
+function resolveStorageBase(): string {
+  if (typeof window !== 'undefined') {
+    // 优先同源（走 Vite 代理或 Nginx 反向代理，无 CORS 问题）
+    const { hostname, port } = window.location;
+    // 排除 Vite 端口（5174），存储服务固定 3001
+    if (port === '5174' || port === '4173') {
+      return `http://${hostname}:3001`;
+    }
+    // 同端口部署（生产环境 Nginx 代理）
+    return window.location.origin;
+  }
+  return 'http://localhost:3001';
+}
+
+const STORAGE_API_BASE = resolveStorageBase();
+
+console.log('[Web Shim] Storage API base:', STORAGE_API_BASE);
 
 async function apiGet(key: string): Promise<string | null> {
   const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`);

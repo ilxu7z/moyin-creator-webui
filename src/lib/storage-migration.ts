@@ -14,7 +14,7 @@
 
 import { fileStorage } from './indexed-db-storage';
 
-const MIGRATION_FLAG_KEY = '_p/_migrated';
+const MIGRATION_FLAG_KEY = '_migrated';
 
 /**
  * Run migration if needed. Should be called early in app initialization,
@@ -24,17 +24,34 @@ export async function migrateToProjectStorage(): Promise<void> {
   // Only run in Electron
   if (!window.fileStorage) return;
 
-  // Check migration flag
+  // Check migration flag (supports both new and old locations)
+  const oldFlagKey = '_p/_migrated'; // pre-v0.2.3 location
+  const newFlagKey = MIGRATION_FLAG_KEY; // v0.2.3+: data root
+  let flagExists = false;
+
   try {
-    const flagExists = await window.fileStorage.exists(MIGRATION_FLAG_KEY);
-    if (flagExists) {
-      console.log('[Migration] Already migrated, skipping.');
-      return;
+    flagExists = await window.fileStorage.exists(newFlagKey);
+    if (!flagExists) {
+      flagExists = await window.fileStorage.exists(oldFlagKey);
     }
   } catch {
     // exists() not available, check by trying to read
-    const flag = await fileStorage.getItem(MIGRATION_FLAG_KEY);
-    if (flag) return;
+    let flag = await fileStorage.getItem(newFlagKey);
+    if (!flag) flag = await fileStorage.getItem(oldFlagKey);
+    if (flag) flagExists = true;
+  }
+
+  if (flagExists) {
+    // If flag only exists at old location, migrate it to new location
+    try {
+      const newExists = await window.fileStorage.exists(newFlagKey);
+      if (!newExists) {
+        const oldFlag = await fileStorage.getItem(oldFlagKey);
+        if (oldFlag) await fileStorage.setItem(newFlagKey, oldFlag);
+      }
+    } catch {}
+    console.log('[Migration] Already migrated, skipping.');
+    return;
   }
 
   console.log('[Migration] Starting per-project migration...');
@@ -365,5 +382,5 @@ async function writeMigrationFlag(): Promise<void> {
     version: 1,
   });
   await fileStorage.setItem(MIGRATION_FLAG_KEY, flag);
-  console.log('[Migration] Migration flag written.');
+  console.log('[Migration] Migration flag written to new location.');
 }
