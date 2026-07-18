@@ -79,46 +79,87 @@ async function apiSet(key: string, value: string): Promise<boolean> {
 }
 
 async function apiRemove(key: string): Promise<boolean> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
-    method: 'DELETE',
-  });
-  const data = await res.json();
-  return data.success === true;
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      console.error(`[Storage] DELETE ${key} failed: ${res.status} ${res.statusText}`);
+      return false;
+    }
+    const data = await res.json();
+    return data.success === true;
+  } catch (err) {
+    console.error(`[Storage] DELETE ${key} network error:`, err);
+    return false;
+  }
 }
 
 async function apiExists(key: string): Promise<boolean> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}/exists`);
-  const data = await res.json();
-  return data.exists === true;
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}/exists`);
+    if (!res.ok) {
+      console.error(`[Storage] EXISTS ${key} failed: ${res.status} ${res.statusText}`);
+      return false;
+    }
+    const data = await res.json();
+    return data.exists === true;
+  } catch (err) {
+    console.error(`[Storage] EXISTS ${key} network error:`, err);
+    return false;
+  }
 }
 
 async function apiListKeys(prefix: string): Promise<string[]> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/keys/${encodeURIComponent(prefix)}`);
-  const data = await res.json();
-  return data.keys || [];
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/keys/${encodeURIComponent(prefix)}`);
+    if (!res.ok) {
+      console.error(`[Storage] KEYS ${prefix} failed: ${res.status} ${res.statusText}`);
+      return [];
+    }
+    const data = await res.json();
+    return data.keys || [];
+  } catch (err) {
+    console.error(`[Storage] KEYS ${prefix} network error:`, err);
+    return [];
+  }
 }
 
 async function apiListDirs(prefix: string): Promise<string[]> {
-  const allKeys = await apiListKeys(prefix);
-  const dirs = new Set<string>();
-  for (const k of allKeys) {
-    let rest = k.slice(prefix.length);
-    // 去掉开头可能有的 /
-    if (rest.startsWith('/')) rest = rest.slice(1);
-    const slashIdx = rest.indexOf('/');
-    if (slashIdx !== -1) {
-      dirs.add(rest.slice(0, slashIdx));
+  try {
+    const allKeys = await apiListKeys(prefix);
+    const dirs = new Set<string>();
+    for (const k of allKeys) {
+      let rest = k.slice(prefix.length);
+      // 去掉开头可能有的 /
+      if (rest.startsWith('/')) rest = rest.slice(1);
+      const slashIdx = rest.indexOf('/');
+      if (slashIdx !== -1) {
+        dirs.add(rest.slice(0, slashIdx));
+      }
     }
+    return Array.from(dirs);
+  } catch (err) {
+    console.error(`[Storage] LISTDIRS ${prefix} error:`, err);
+    return [];
   }
-  return Array.from(dirs);
 }
 
 async function apiRemoveDir(prefix: string): Promise<boolean> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/dir/${encodeURIComponent(prefix)}`, {
-    method: 'DELETE',
-  });
-  const data = await res.json();
-  return data.success === true;
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/dir/${encodeURIComponent(prefix)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      console.error(`[Storage] REMOVEDIR ${prefix} failed: ${res.status} ${res.statusText}`);
+      return false;
+    }
+    const data = await res.json();
+    return data.success === true;
+  } catch (err) {
+    console.error(`[Storage] REMOVEDIR ${prefix} network error:`, err);
+    return false;
+  }
 }
 
 // ==================== fileStorage 实现 ====================
