@@ -23,12 +23,8 @@
 // - https://IP/chat?...   → 同上（请求到 Vite 后转 proxy）
 // - 生产环境 Nginx       → Nginx 需配 /api/storage 转 :3002
 function resolveStorageBase(): string {
-  if (typeof window !== 'undefined') {
-    // 显式配置优先（用于生产环境独立部署）
-    const configured = getEnv('VITE_STORAGE_URL');
-    if (configured) return configured;
-  }
   // 默认：相对路径，走 Vite proxy → localhost:3002
+  // 所有入口（localhost/lan/Gateway）统一走 Vite server.proxy
   return '';
 }
 

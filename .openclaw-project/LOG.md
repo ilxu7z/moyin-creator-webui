@@ -17,3 +17,10 @@
 - 独立启动 `npx vite --config vite.config.web.ts --host 0.0.0.0`，403ms 就绪
 - 双服务健康检查通过 ✅
 - 浏览器访问 http://localhost:5174 正常
+
+## 2026-07-18 17:05 — 启动项目（新会话）
+- 端口 3002 被旧进程占用，清理后重跑
+- `npm run dev` 的 waitForPort 检测有 bug（127.0.0.1 vs 0.0.0.0 绑定差异），storage 服务实际启动成功但脚本超时报错
+- 手动启动 Vite → 348ms 就绪
+- 双服务健康检查通过 ✅
+- 访问地址 http://localhost:5174

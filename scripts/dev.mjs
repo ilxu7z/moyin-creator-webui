@@ -19,30 +19,55 @@ const VITE_PORT = 5174;
 function checkPort(port) {
   return new Promise((resolve) => {
     const server = createServer();
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, '0.0.0.0', () => {
       server.close(() => resolve(true));
     });
     server.on('error', () => resolve(false));
   });
 }
 
-/** 等待端口变为监听状态 */
-function waitForPort(port, timeoutMs = 15000) {
+/** 等待端口变为监听状态（使用 HTTP health check，避免 macOS 0.0.0.0/127.0.0.1 分离 bug）*/
+function waitForPort(port, timeoutMs = 15000, healthPath = '/healthz') {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const check = () => {
+      // 先用 socket 测 0.0.0.0（与服务器 bind 地址一致）
       const s = createServer();
-      s.listen(port, '127.0.0.1', () => {
-        s.close(() => {
-          // 端口空闲 → 还没启动
-          if (Date.now() - start > timeoutMs) {
-            reject(new Error(`端口 ${port} 在 ${timeoutMs}ms 内未变为监听状态`));
-          } else {
-            setTimeout(check, 500);
-          }
-        });
+      const done = (ok) => {
+        s.removeAllListeners();
+        if (s.listening) s.close();
+        if (ok) return resolve();
+        if (Date.now() - start > timeoutMs) {
+          return reject(new Error(`端口 ${port} 在 ${timeoutMs}ms 内未变为监听状态`));
+        }
+        setTimeout(check, 500);
+      };
+      // macOS: 0.0.0.0 bind 和 127.0.0.1 bind 可能不互斥
+      // 使用更可靠的检测方式：connect 请求到 127.0.0.1
+      s.on('error', () => {
+        // 0.0.0.0:port 被占用 → 服务可能已启动
+        // 再发 HTTP 探测确认
+        import('node:http').then(http => {
+          const req = http.get(`http://127.0.0.1:${port}${healthPath}`, (res) => {
+            if (res.statusCode >= 200 && res.statusCode < 400) {
+              done(true);
+            } else {
+              // 端口被其他服务占用
+              done(false);
+            }
+          });
+          req.on('error', () => {
+            // 端口被占用但不是 HTTP 服务 → 继续等待
+            done(false);
+          });
+          req.setTimeout(2000, () => { req.destroy(); done(false); });
+        }).catch(() => done(false));
       });
-      s.on('error', () => resolve()); // 端口被占用 = 服务已启动
+      s.listen(port, '0.0.0.0', () => {
+        // 端口空闲 → 还没启动
+        s.close();
+        done(false);
+      });
     };
     check();
   });
