@@ -12,18 +12,32 @@
 
 // ==================== 本地存储 API 客户端 ====================
 
-// 存储服务基地址：同端口（Vite 代理转发），或运行时自动检测
-// - Vite dev: 通过 /__api_proxy 同源代理，无 CORS
-// - 生产部署: 同源部署时直接用 /api，否则回退到 localhost:3001
+// 存储服务基地址：多种部署场景自动适配
+// - 场景 A: Vite dev 直连 → http://{hostname}:3001（走 Vite 代理或直接连接）
+// - 场景 B: Nginx 同端口部署 → window.location.origin（存储服务和前端同一端口）
+// - 场景 C: 通过反向代理/HTTPS 访问 Vite（如 https://192.168.3.180/chat?session=...）
+//           此时 Vite 在 :5174 但无法从浏览器端口判断 → 默认用 localhost:3001
+// - 场景 D: 生产环境，存储服务独立端口（罕见）→ 检查是否可配置
 function resolveStorageBase(): string {
   if (typeof window !== 'undefined') {
-    // 优先同源（走 Vite 代理或 Nginx 反向代理，无 CORS 问题）
-    const { hostname, port } = window.location;
-    // 排除 Vite 端口（5174），存储服务固定 3001
+    const { hostname, port, protocol } = window.location;
+
+    // 场景 A: Vite 端口直接访问
     if (port === '5174' || port === '4173') {
       return `http://${hostname}:3001`;
     }
-    // 同端口部署（生产环境 Nginx 代理）
+
+    // 场景 B & C: 同源访问（HTTPS/80/443 等非 Vite 端口）
+    // 先尝试同源（Nginx 可能代理了 /api/storage 到 3001）
+    // 但如果同源没有存储服务，就需要明确配置
+    
+    // 检查是否有显式配置的存储地址
+    const configured = getEnv('VITE_STORAGE_URL');
+    if (configured) return configured;
+
+    // 默认：同端口部署（Nginx 反向代理 /api/storage → localhost:3001）
+    // ⚠️ 如果 Vite 通过非标准反向代理访问（如 https://IP/chat?session=...），
+    //    需要确保该代理也转发了 /api/storage 请求到 3001，否则数据写入会静默失败
     return window.location.origin;
   }
   return 'http://localhost:3001';
@@ -31,22 +45,48 @@ function resolveStorageBase(): string {
 
 const STORAGE_API_BASE = resolveStorageBase();
 
-console.log('[Web Shim] Storage API base:', STORAGE_API_BASE);
+console.log('[Web Shim] Storage API base:', STORAGE_API_BASE, '| from:', typeof window !== 'undefined' ? window.location.href : 'SSR');
 
 async function apiGet(key: string): Promise<string | null> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`);
-  const data = await res.json();
-  return data.value ?? null;
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`);
+    if (!res.ok) {
+      console.error(`[Storage] GET ${key} failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.success) {
+      console.error(`[Storage] GET ${key} error:`, data.error);
+      return null;
+    }
+    return data.value ?? null;
+  } catch (err) {
+    console.error(`[Storage] GET ${key} network error:`, err);
+    return null;
+  }
 }
 
 async function apiSet(key: string, value: string): Promise<boolean> {
-  const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value }),
-  });
-  const data = await res.json();
-  return data.success === true;
+  try {
+    const res = await fetch(`${STORAGE_API_BASE}/api/storage/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    if (!res.ok) {
+      console.error(`[Storage] SET ${key} failed: ${res.status} ${res.statusText}`);
+      return false;
+    }
+    const data = await res.json();
+    if (!data.success) {
+      console.error(`[Storage] SET ${key} error:`, data.error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[Storage] SET ${key} network error:`, err);
+    return false;
+  }
 }
 
 async function apiRemove(key: string): Promise<boolean> {

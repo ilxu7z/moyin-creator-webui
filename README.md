@@ -35,6 +35,17 @@ npm run dev
 - 数据与代码**物理隔离**：删代码不影响数据
 - 三层写入保护：pid-null 拦截 / 大小安全门槛 / force-refresh
 - 卸载重装：`npm run uninstall` → `git clone` → `npm install` → 数据无损
+- 存储 API 客户端有错误检测：网络不通/404 时控制台会输出 `[Storage]` 日志
+
+#### 访问方式与存储服务连接
+
+| 浏览器地址 | 存储连接 | 是否正常 |
+|-----------|---------|---------|
+| `http://localhost:5174` | `http://localhost:3001` | ✅ Vite dev 直连 |
+| `http://192.168.3.180:5174` | `http://192.168.3.180:3001` | ✅ 局域网访问 |
+| `https://192.168.3.180/chat?session=...` | `https://192.168.3.180`（同源） | ⚠️ 需反向代理转发 `/api/storage` → `localhost:3001` |
+
+> ⚠️ 通过反向代理（如 OpenClaw Gateway）访问时，若代理未转发 `/api/storage` 路由到 `localhost:3001`，数据写入会**静默失败**。检查 F12 控制台是否有 `[Storage]` 错误日志。
 
 ## 文档
 
