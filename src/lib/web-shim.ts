@@ -4,6 +4,9 @@
 
 // src/lib/web-shim.ts
 // 浏览器运行时注入，mock Electron 特有 API，使前端代码可在纯浏览器中运行
+
+// 版本号：由 Vite define 注入，或在构建时替换
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.2.3';
 // 
 // WebUI 版数据持久化策略：
 //   fileStorage → 通过 HTTP API 写入本地文件系统 (local-storage-server.mjs)
@@ -386,7 +389,7 @@ export async function installWebShims(): Promise<void> {
 
   // 5. appUpdater — mock（WebUI 不需要自动更新）
   (window as any).appUpdater = {
-    getCurrentVersion: async () => '0.2.3-web',
+    getCurrentVersion: async () => APP_VERSION,
     checkForUpdates: async () => ({ hasUpdate: false, message: 'Web版无需检查更新' }),
     openExternalLink: async (url: string) => {
       window.open(url, '_blank');

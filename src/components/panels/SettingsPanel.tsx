@@ -487,22 +487,37 @@ export function SettingsPanel() {
 
   const handleExportData = async () => {
     if (!window.storageManager) return;
-    const dir = await window.storageManager.selectDirectory();
-    if (!dir) return;
-    const result = await window.storageManager.exportData(dir);
-    if (result.success) {
-      toast.success("数据已导出");
+    // Electron: 选目录导出；WebUI: 直接触发 JSON 下载
+    if (isElectron) {
+      const dir = await window.storageManager.selectDirectory();
+      if (!dir) return;
+      const result = await window.storageManager.exportData(dir);
+      if (result.success) {
+        toast.success("数据已导出");
+      } else {
+        toast.error(`导出失败: ${result.error || "未知错误"}`);
+      }
     } else {
-      toast.error(`导出失败: ${result.error || "未知错误"}`);
+      const result = await window.storageManager.exportData();
+      if (result.success) {
+        toast.success("数据已导出");
+      } else {
+        toast.error(`导出失败: ${result.error || "未知错误"}`);
+      }
     }
   };
 
   const handleImportData = async () => {
     if (!window.storageManager) return;
-    const dir = await window.storageManager.selectDirectory();
-    if (!dir) return;
     if (!confirm("导入将覆盖当前数据，是否继续？")) return;
-    const result = await window.storageManager.importData(dir);
+    // Electron: 选目录导入；WebUI: 直接弹文件选择器
+    const result = isElectron
+      ? await (async () => {
+          const dir = await window.storageManager.selectDirectory();
+          if (!dir) return { success: false, error: '未选择目录' };
+          return window.storageManager.importData(dir);
+        })()
+      : await window.storageManager.importData();
     if (result.success) {
       // 清除 localStorage 中的缓存，防止旧数据覆盖导入的数据
       const keysToRemove = Object.keys(localStorage).filter(key => 
@@ -1342,7 +1357,18 @@ export function SettingsPanel() {
                   <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                   <div>
                     <p className="text-sm text-muted-foreground">
-                      存储设置仅在桌面版中可用。
+                      存储服务未连接。请确保 npm run dev 正常运行。
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {hasStorageManager && !isElectron && (
+                <div className="flex items-start gap-3 p-4 bg-muted/50 border border-border rounded-lg">
+                  <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      网页版支持资源共享、过期导入和缓存管理。存储位置选择和数据恢复功能需桌面版。
                     </p>
                   </div>
                 </div>
@@ -1408,7 +1434,8 @@ export function SettingsPanel() {
                       readOnly
                       className="font-mono text-xs"
                     />
-                    <Button size="sm" onClick={handleSelectStoragePath} disabled={!hasStorageManager}>
+                    <Button size="sm" onClick={handleSelectStoragePath} disabled={!isElectron || !hasStorageManager}
+                      title={!isElectron ? '此功能需桌面版' : undefined}>
                       选择
                     </Button>
                   </div>
@@ -1443,8 +1470,9 @@ export function SettingsPanel() {
                     variant="outline" 
                     size="sm" 
                     onClick={handleLinkData} 
-                    disabled={!hasStorageManager}
+                    disabled={!isElectron || !hasStorageManager}
                     className="w-full"
+                    title={!isElectron ? '此功能需桌面版' : undefined}
                   >
                     <Folder className="h-3.5 w-3.5 mr-1" />
                     指向已有数据目录

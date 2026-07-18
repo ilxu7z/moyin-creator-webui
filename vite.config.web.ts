@@ -93,6 +93,9 @@ export default defineConfig({
   plugins: [react(), apiProxyPlugin()],
   root: '.',
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.2.3'),
+  },
   server: {
     port: 5174,
     host: '0.0.0.0',
