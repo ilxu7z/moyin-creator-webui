@@ -17,8 +17,10 @@ npm run dev
 | ❌ 禁止 | 原因 |
 |---------|------|
 | `npx vite` 或 `npx vite --host 0.0.0.0` | 不会启动存储服务，数据写入会静默失败 |
-| `npm run storage` 然后 `npm run dev:web`（分两步） | 顺序错误时 Vite 先启、存储后启 → 前端连不上存储 |
-| 手动 `node local-storage-server.mjs & npx vite` | 同上，无错误处理 |
+| `npm run storage` + `npm run dev:web`（分两步） | 顺序错误时 Vite 先启、存储后启 → 前端连不上存储 |
+| `bash start-web.sh` | ⛔ **已删除！** 旧版脚本端口写死 5173，且用 nohup 后台 |
+| `node local-storage-server.mjs & npx vite` | 无顺序保证，无错误处理 |
+| `node local-storage-server.mjs &` | 只启动存储，不启动 Vite |
 | 用 OpenClaw Gateway 代理 Vite 但不代理 `/api/storage` | 之前已引起数据丢失事故 |
 
 ### 2. 启动前检查

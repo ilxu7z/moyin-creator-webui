@@ -2,13 +2,24 @@
 
 AI 驱动的动漫/短剧分镜创作工具 — 浏览器版
 
-## 快速启动
+## ⛔ 启动（Agent 不可绕过）
 
 ```bash
-npm run dev
+cd ~/Projects/moyin-creator-webui && npm run dev
 ```
 
-一键启动本地存储服务 + Vite 开发服务器，浏览器打开 **http://localhost:5174**
+> **不要**用任何其他方式启动。
+> 不要执行 start-web.sh（**旧版，端口写死 5173，已删除**）。
+> 不要分步启动（先 storage 再 dev:web）。
+> 不要用 nohup 或 & 后台。
+
+浏览器打开 **http://localhost:5174**
+
+验证：
+```bash
+curl -s http://localhost:3001/healthz  # → {"status":"ok"}
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5174  # → 200
+```
 
 ## 全部脚本
 

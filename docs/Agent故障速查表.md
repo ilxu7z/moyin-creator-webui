@@ -77,7 +77,14 @@ curl http://localhost:5174/api/storage/_migrated/exists
 
 ## 4. 网络场景
 
-### 场景：用户通过 `https://192.168.3.180/chat?session=***` 访问
+### 场景：Agent 执行了 start-web.sh（已删除）
+
+- start-web.sh 是旧版启动脚本（16:30 已删除）
+- 端口写死 5173，但 vite config 里 port=5174
+- `npx vite --config vite.config.web.ts` 实际启动在 5174
+- 但脚本 echo 说启动在 5173 → Agent 误报 URL
+- 5173 是 AI Marketing System 的 Vite → 用户打开会看到别人的页面
+- **修复：删除 start-web.sh，Agent 只用 npm run dev**
 
 - OpenClaw Gateway 代理了 Vite
 - 存储请求走相对路径 `/api/storage` → 经过 Gateway 时，Gateway 需要转发到 Vite

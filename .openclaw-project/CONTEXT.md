@@ -15,6 +15,7 @@ npm run dev 自动：
 ⚠️ 绝对禁止：
   - npx vite 或 npx vite --host 0.0.0.0（不启动存储服务）
   - node local-storage-server.mjs & （不包 Vite 启动）
+  - bash start-web.sh（⚠️ 已删除！旧版端口写死 5173）
   - 不要用后台进程 & 然后 return（exec 必须阻塞等待）
   - 不要用 lsof -i :5173 检查（5173 是其他项目）
   - 不能通过 https://192.168.3.180/chat?session=*** 访问
