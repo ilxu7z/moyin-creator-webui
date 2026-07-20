@@ -182,6 +182,86 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ==================== IMAGE API ====================
+  if (parts[0] === 'api' && parts[1] === 'images') {
+    const IMAGE_DIR = path.join(DATA_DIR, 'images');
+    fs.mkdirSync(IMAGE_DIR, { recursive: true });
+
+    const imageCat = parts[2]; // category (characters/scenes/shots/wardrobe/videos/styles/props)
+    if (!imageCat) {
+      sendError(res, 400, 'Missing image category');
+      return;
+    }
+    const catDir = path.join(IMAGE_DIR, safeKey(imageCat));
+    fs.mkdirSync(catDir, { recursive: true });
+
+    // GET /api/images/:category/:filename — 返回原始图片
+    if (req.method === 'GET' && parts[3]) {
+      const fname = path.basename(decodeURIComponent(parts.slice(3).join('/')));
+      const imgPath = path.join(catDir, fname);
+      if (!fs.existsSync(imgPath)) {
+        sendError(res, 404, 'Image not found');
+        return;
+      }
+      const ext = path.extname(fname).toLowerCase();
+      const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4' };
+      res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.writeHead(200);
+      fs.createReadStream(imgPath).pipe(res);
+      return;
+    }
+
+    // POST /api/images/:category — 上传图片 (body: { data: "base64...", filename: "..." })
+    if (req.method === 'POST') {
+      const body = await parseBody(req);
+      const { data, filename } = body;
+      if (!data) {
+        sendError(res, 400, 'Missing image data');
+        return;
+      }
+      const fname = safeKey(filename || `${Date.now()}.png`);
+      const imgPath = path.join(catDir, fname);
+      let buf;
+      if (data.startsWith('data:')) {
+        const b64 = data.split(',')[1] || data;
+        buf = Buffer.from(b64, 'base64');
+      } else if (data.startsWith('http://') || data.startsWith('https://')) {
+        try {
+          const fetchResp = await fetch(data);
+          buf = Buffer.from(await fetchResp.arrayBuffer());
+        } catch (e) {
+          sendError(res, 502, `Failed to fetch image: ${e.message}`);
+          return;
+        }
+      } else {
+        buf = Buffer.from(data, 'base64');
+      }
+      fs.writeFileSync(imgPath, buf);
+      // 返回本地访问 URL
+      const localUrl = `/api/images/${imageCat}/${encodeURIComponent(fname)}`;
+      sendJSON(res, 200, { success: true, localPath: localUrl, filename: fname });
+      console.log(`[StorageServer] Image saved: ${localUrl} (${buf.length}B)`);
+      return;
+    }
+
+    // DELETE /api/images/:category/:filename
+    if (req.method === 'DELETE' && parts[3]) {
+      const fname = path.basename(decodeURIComponent(parts.slice(3).join('/')));
+      const imgPath = path.join(catDir, fname);
+      if (fs.existsSync(imgPath)) {
+        fs.unlinkSync(imgPath);
+        sendJSON(res, 200, { success: true, deleted: true });
+      } else {
+        sendJSON(res, 200, { success: true, deleted: false });
+      }
+      return;
+    }
+
+    sendError(res, 405, 'Method not allowed');
+    return;
+  }
+
   // API 路由
   if (parts[0] !== 'api' || parts[1] !== 'storage') {
     sendError(res, 404, 'Not found');

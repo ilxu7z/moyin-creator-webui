@@ -40,25 +40,54 @@ export async function saveImageToLocal(
   category: ImageCategory, 
   filename: string = 'image.png'
 ): Promise<string> {
-  // If not in Electron, return original URL
-  if (!isElectron()) {
-    console.warn('Not running in Electron, image will not be saved locally');
-    return url;
+  // Electron 模式
+  if (isElectron()) {
+    try {
+      const result = await window.imageStorage!.saveImage(url, category, filename);
+      if (result.success && result.localPath) {
+        console.log(`Image saved locally (Electron): ${result.localPath}`);
+        return result.localPath;
+      }
+      console.error('Failed to save image:', result.error);
+      return url;
+    } catch (error) {
+      console.error('Error saving image:', error);
+      return url;
+    }
   }
 
+  // 浏览器 Web UI 模式 — 通过 HTTP storage server 保存
   try {
-    const result = await window.imageStorage!.saveImage(url, category, filename);
-    
-    if (result.success && result.localPath) {
-      console.log(`Image saved locally: ${result.localPath}`);
-      return result.localPath;
-    } else {
-      console.error('Failed to save image:', result.error);
-      return url; // Fallback to original URL
+    // 获取图片数据：支持 data: URL 和 HTTP URL
+    let imageData = url;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const resp = await fetch(url.startsWith('/') ? url : `/__api_proxy?url=${encodeURIComponent(url)}`);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        imageData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
     }
+
+    const resp = await fetch(`/api/images/${encodeURIComponent(category)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: imageData, filename }),
+    });
+    const result = await resp.json();
+    if (result.success && result.localPath) {
+      console.log(`Image saved locally (WebUI): ${result.localPath}`);
+      return result.localPath;
+    }
+    console.error('Failed to save image via HTTP:', result.error);
+    return url;
   } catch (error) {
-    console.error('Error saving image:', error);
-    return url; // Fallback to original URL
+    console.error('Error saving image via HTTP:', error);
+    return url;
   }
 }
 
@@ -66,24 +95,29 @@ export async function saveImageToLocal(
  * Resolve a local-image:// path to an actual file:// URL
  * Falls back to the original path if not a local-image path or not in Electron
  */
-export async function resolveImagePath(path: string): Promise<string> {
+export async function resolveImagePath(pathStr: string): Promise<string> {
+  // WebUI 模式：/api/images/... 路径已经是可直接访问的
+  if (pathStr.startsWith('/api/images/')) {
+    return pathStr;
+  }
+
   // If not a local-image path, return as-is
-  if (!path.startsWith('local-image://')) {
-    return path;
+  if (!pathStr.startsWith('local-image://')) {
+    return pathStr;
   }
 
   // If not in Electron, can't resolve local paths
   if (!isElectron()) {
     console.warn('Not running in Electron, cannot resolve local image path');
-    return path;
+    return pathStr;
   }
 
   try {
-    const resolvedPath = await window.imageStorage!.getImagePath(path);
-    return resolvedPath || path;
+    const resolvedPath = await window.imageStorage!.getImagePath(pathStr);
+    return resolvedPath || pathStr;
   } catch (error) {
     console.error('Error resolving image path:', error);
-    return path;
+    return pathStr;
   }
 }
 

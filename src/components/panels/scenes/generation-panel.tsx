@@ -22,6 +22,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useMediaStore } from "@/stores/media-store";
 import { getFeatureConfig, getFeatureNotConfiguredMessage } from "@/lib/ai/feature-router";
 import { generateSceneImage as generateSceneImageAPI, submitGridImageRequest } from "@/lib/ai/image-generator";
+import { corsFetch } from "@/lib/cors-fetch";
 import { generateContactSheetPrompt, generateMultiPageContactSheetData, type SceneViewpoint } from "@/lib/script/scene-viewpoint-generator";
 import type { PendingViewpointData, ContactSheetPromptSet } from "@/stores/media-panel-store";
 import { splitStoryboardImage } from "@/lib/storyboard/image-splitter";
@@ -1401,13 +1402,13 @@ ${gridItemsZh}
     }));
     // 联合图也保存到本地（避免 base64 持久化膨胀）
     let localContactSheet: string | null = contactSheetImage;
-    if (contactSheetImage && contactSheetImage.startsWith('data:')) {
+    if (contactSheetImage && (contactSheetImage.startsWith('data:') || contactSheetImage.startsWith('http'))) {
       const csPath = await saveImageToLocal(
         contactSheetImage,
         'scenes',
         `contact-sheet-${parentScene.id}_${Date.now()}.png`
       );
-      if (csPath.startsWith('local-image://')) {
+      if (csPath.startsWith('local-image://') || csPath.startsWith('/api/storage/') || csPath.startsWith('/api/images/')) {
         localContactSheet = csPath;
         // 联合图同步归档到素材库
         const csAiFolder = getOrCreateCategoryFolder('ai-image');
@@ -1419,6 +1420,8 @@ ${gridItemsZh}
           folderId: csAiFolder,
           projectId: parentScene.projectId ?? resourceProjectId ?? undefined,
         });
+      } else {
+        localContactSheet = csPath;
       }
     }
     updateScene(parentScene.id, {
@@ -1648,7 +1651,7 @@ ${gridItemsZh}
         if (generatedImageUrl.startsWith('http://') || generatedImageUrl.startsWith('https://')) {
           console.log('[AutoContactSheet] HTTP URL 检测到，转换为 base64...');
           try {
-            const resp = await fetch(generatedImageUrl);
+            const resp = await corsFetch(generatedImageUrl);
             const blob = await resp.blob();
             imageForSplit = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
@@ -1847,7 +1850,8 @@ ${gridItemsZh}
             'scenes',
             `contact-sheet-${parentScene.id}_${Date.now()}.png`
           );
-          if (csPath.startsWith('local-image://')) {
+          const isLocal = csPath.startsWith('local-image://') || csPath.startsWith('/api/storage/') || csPath.startsWith('/api/images/');
+          if (isLocal) {
             localContactSheet = csPath;
             const csAiFolder = getOrCreateCategoryFolder('ai-image');
             addMediaFromUrl({
@@ -1858,6 +1862,8 @@ ${gridItemsZh}
               folderId: csAiFolder,
               projectId: parentScene.projectId ?? snapshotProjectId ?? undefined,
             });
+          } else {
+            localContactSheet = csPath;
           }
         }
 
