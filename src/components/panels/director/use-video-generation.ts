@@ -716,6 +716,10 @@ async function callVolcVideoApi(
   audioRefs?: string[],
   signal?: AbortSignal,
 ): Promise<string> {
+  // 去掉 baseUrl 末尾的 /v1 等版本号，避免路径重复（/v1/volc/v1/...）
+  // 提前定义 rootBase，供 base64→HTTP URL 转换使用
+  const rootBase = baseUrl.replace(/\/v\d+$/, '');
+
   // 构建 content 数组（Volcengine 格式: text + image_url）
   const content: Array<Record<string, unknown>> = [];
 
@@ -727,10 +731,28 @@ async function callVolcVideoApi(
   if (duration) textContent += ` --dur ${duration}`;
   if (cameraFixed !== undefined) textContent += ` --cf ${cameraFixed}`;
 
+  // 豆包 volc API 要求 image_url 必须是 HTTP(S) URL，不支持 base64 data URL
+  // 如果图片是 base64，先上传到 Kuai 获取临时 HTTP URL
+  const httpImageUrls = await Promise.all(
+    imageWithRoles.map(async (img) => {
+      if (!img.url) return { ...img, url: '' };
+      if (!img.url.startsWith('data:')) return img;
+      try {
+        console.log('[VideoGen] Converting base64 image to HTTP URL via Kuai upload...');
+        const httpUrl = await uploadBase64ToKuai(img.url, apiKey, rootBase);
+        console.log('[VideoGen] Base64 converted to:', httpUrl.substring(0, 60));
+        return { ...img, url: httpUrl };
+      } catch (e) {
+        console.error('[VideoGen] Failed to upload base64 to Kuai:', e);
+        throw new Error('图片上传失败（base64→Kuai），请检查图床配置');
+      }
+    })
+  );
+
   content.push({ type: 'text', text: textContent });
 
   // 图片内容（首帧/尾帧）
-  for (const img of imageWithRoles) {
+  for (const img of httpImageUrls) {
     if (img.url) {
       content.push({
         type: 'image_url',
@@ -774,8 +796,6 @@ async function callVolcVideoApi(
     imageCount: imageWithRoles.filter(i => i.url).length,
   });
 
-  // 去掉 baseUrl 末尾的 /v1 等版本号，避免路径重复（/v1/volc/v1/...）
-  const rootBase = baseUrl.replace(/\/v\d+$/, '');
   const submitUrl = `${rootBase}/volc/v1/contents/generations/tasks`;
   console.log('[VideoGen] Volc submit URL:', submitUrl);
   const submitResponse = await fetch(submitUrl, {
@@ -1678,4 +1698,62 @@ export async function callJuxinVideoGenerationApi(
   }
   
   throw new Error('视频生成超时');
+}
+
+/**
+ * 将 base64 data URL 上传到 Kuai（OpenAI 兼容 /v1/files）获取临时 HTTP URL
+ * 因为豆包 volc API 的 image_url.url 只支持 HTTP(S)，不支持 base64
+ */
+async function uploadBase64ToKuai(
+  dataUrl: string,
+  apiKey: string,
+  kuaiBase: string,
+): Promise<string> {
+  // 解析 data:image/png;base64,xxx → Blob
+  const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid base64 data URL format');
+  const mimeType = match[1];
+  const base64 = match[2];
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimeType });
+
+  // 构建 multipart/form-data
+  const form = new FormData();
+  form.append('purpose', 'vision');
+  form.append('file', blob, `frame_${Date.now()}.png`);
+
+  // 上传到 Kuai（用 Vite 代理或直连）
+  const uploadUrl = `${kuaiBase}/v1/files`;
+  console.log('[VideoGen] Uploading image to Kuai:', uploadUrl);
+  const resp = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error('[VideoGen] Kuai upload failed:', resp.status, errText);
+    throw new Error(`Kuai 文件上传失败 (${resp.status}): ${errText.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  // OpenAI 兼容格式: { id: "file-xxx", filename: "...", bytes: ..., created_at: ... }
+  // Kuai 可能返回 download_url 或通过 /v1/files/:id/content 获取
+  const fileId = data.id;
+  if (!fileId) throw new Error('Kuai 上传成功但未返回文件 ID');
+  
+  // 尝试直接获取下载 URL — Kuai 可能在响应里给 download_url
+  if (data.download_url) return data.download_url;
+  
+  // 通过 /v1/files/{id}/content 获取内容 URL
+  // Kuai 的响应可能包含 url 字段
+  if (data.url) return data.url;
+  
+  // 最后回退：构造引用 URL 格式
+  // 不确定 Kuai 具体返回格式，先返回 file ID 让 volc API 试
+  console.warn('[VideoGen] Kuai upload response missing download URL, fields:', Object.keys(data));
+  throw new Error(`Kuai 上传成功但未返回可用的图片 URL。响应: ${JSON.stringify(data).substring(0, 300)}`);
 }
