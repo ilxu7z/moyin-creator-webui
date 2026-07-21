@@ -153,7 +153,7 @@ export async function readImageAsBase64(imagePath: string): Promise<string | nul
   }
 
   // If it's a remote URL, fetch and convert
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('/api/images/')) {
     try {
       const response = await fetch(imagePath);
       const blob = await response.blob();
@@ -167,6 +167,29 @@ export async function readImageAsBase64(imagePath: string): Promise<string | nul
       console.error('Error fetching remote image:', error);
       return null;
     }
+  }
+
+  // For local-image:// protocol in WebUI, try to resolve via /api/images/
+  if (imagePath.startsWith('local-image://') && !isElectron()) {
+    // Extract the path portion after local-image:// and try /api/images/ endpoint
+    const localPath = imagePath.replace('local-image://', '');
+    const webApiPath = `/api/images/file/${encodeURIComponent(localPath)}`;
+    try {
+      const response = await fetch(webApiPath);
+      if (response.ok) {
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch {
+      // Fall through to return null
+    }
+    console.warn('Not running in Electron, cannot read local image:', imagePath);
+    return null;
   }
 
   // For local images, use Electron IPC

@@ -111,20 +111,15 @@ export async function convertToHttpUrl(
   }
 
   let imageData = url;
-  if (url.startsWith('local-image://')) {
+  if (url.startsWith('local-image://') || url.startsWith('/api/images/')) {
     const base64 = await readImageAsBase64(url);
     if (!base64) throw new Error(`无法读取本地文件: ${url.substring(0, 40)}`);
     imageData = base64;
   }
 
-  const result = await uploadToImageHost(imageData, {
-    name: options?.uploadName?.trim() || `media_ref_${Date.now()}`,
-    expiration: 15552000,
-  });
-  if (!result.success || !result.url) {
-    throw new Error(result.error || '图床上传失败');
-  }
-  return result.url;
+  // ⚠️ 2026-07-21: Catbox is unreliable, skip upload — go straight to base64
+  // 豆包 volc API 原生支持 data: URL
+  return imageData;
 }
 
 // Build image_with_roles array for video generation
@@ -201,6 +196,8 @@ const VIDEO_FORMAT_MAP: Record<string, 'openai_official' | 'unified' | 'volc' | 
  */
 const UNIFIED_ENDPOINT_PATHS: Record<string, { submit: string; poll: (id: string) => string }> = {
   // 路径均为域名根起的绝对路径（不依赖 /v1/ 前缀拼接）
+  // duoyuanx 等自定义供应商将视频模型标记为 openai 类型，实际兼容 Kuai 协议
+  'openai':         { submit: '/v1/video/create',      poll: (id) => `/v1/video/query?id=${id}` },
   'grok视频':     { submit: '/v1/video/create',      poll: (id) => `/v1/video/query?id=${id}` },
   '视频统一格式': { submit: '/v1/video/create',      poll: (id) => `/v1/video/query?id=${id}` },
   '海螺视频生成': { submit: '/minimax/v1/video_generation', poll: (id) => `/minimax/v1/query/video_generation?task_id=${id}` },
@@ -234,6 +231,7 @@ function getUnifiedEndpointPaths(endpointTypes: string[]): { submit: string; pol
  */
 function detectVideoApiFormat(model: string): 'openai_official' | 'unified' | 'volc' | 'wan' | 'kling' | 'replicate' {
   // 1. 查询 store 中的 endpoint types 元数据
+  const m = model.toLowerCase();
   const endpointTypes = useAPIConfigStore.getState().modelEndpointTypes[model];
   if (endpointTypes && endpointTypes.length > 0) {
     // 优先级：openai_official → kling → volc → wan → replicate → unified
@@ -276,12 +274,9 @@ function detectVideoApiFormat(model: string): 'openai_official' | 'unified' | 'v
     console.warn(`[VideoGen] Unknown endpoint types for ${model}:`, endpointTypes, '→ fallback to name-based');
   }
 
-  // 2. Fallback: 按模型名推断
-  const m = model.toLowerCase();
+  // 2. Fallback: 按模型名推断（doubao/seedance 已在顶部优先处理）
   if (m.includes('sora-2')) return 'openai_official';
   if (m.includes('kling')) return 'kling';
-  // doubao-seedance 走 volc 格式（/volc/v1/contents/generations/tasks）
-  if (m.includes('doubao') || m.includes('seedance') || m.includes('seedream')) return 'volc';
   if (m.includes('wan')) return 'wan';
   return 'unified';
 }
@@ -549,6 +544,8 @@ async function callUnifiedVideoApi(
   const isLuma = endpointTypes.some(t => /luma/i.test(t));
   const isRunway = endpointTypes.some(t => /runway/i.test(t));
   const isGrok = endpointTypes.some(t => /grok/i.test(t)) || /grok/i.test(model);
+  const isOpenAIProxy = endpointTypes.includes('openai') && endpointTypes.length === 1;
+    // duoyuanx 等将视频模型标记为纯 openai 类型的自定义代理，使用 Kuai 兼容协议
   const endpointPaths = getUnifiedEndpointPaths(endpointTypes);
 
   // 构建请求体（对齐 freedom-api.ts generateVideoViaUnified）
@@ -556,19 +553,24 @@ async function callUnifiedVideoApi(
   const metadata: Record<string, unknown> = {};
 
   // Duration: Luma requires string with unit ("5s"), other models use number
-  if (duration) {
+  // 注意：duoyuanx 等 OpenAI-proxy 类型不要发 duration 字段（后端会自动转发并可能出错）
+  if (duration && !isOpenAIProxy) {
     body.duration = isLuma ? `${duration}s` : duration;
   }
 
   // AspectRatio 处理策略（各模型格式不同，按模型分别处理）：
   // - Runway: metadata.ratio（像素格式 1280:720）
   // - Grok: 顶层 aspect_ratio（xAI 官方格式，支持 16:9/9:16/4:3/3:4/3:2/2:3/1:1）
+  // - OpenAI-proxy (duoyuanx 等): 嵌入 prompt 内 --rt
   // - 其他统一格式模型: metadata.aspect_ratio
   if (aspectRatio) {
     if (isRunway) {
       metadata.ratio = toRunwayRatio(aspectRatio);
     } else if (isGrok) {
       body.aspect_ratio = aspectRatio;
+    } else if (isOpenAIProxy) {
+      // 将参数内联到 prompt 中，由 duoyuanx 等代理后端自行解析
+      // 不通过 metadata（代理可能不支持或错误转发）
     } else {
       metadata.aspect_ratio = aspectRatio;
     }
@@ -586,16 +588,26 @@ async function callUnifiedVideoApi(
   }
 
   // Image inputs: single `image` field (not array)
+  // duoyuanx 等 OpenAI-proxy 使用 image_url 字段名
   const firstFrame = imageWithRoles.find(img => img.role === 'first_frame');
   if (firstFrame?.url) {
-    body.image = firstFrame.url;
+    if (isOpenAIProxy) {
+      body.image_url = firstFrame.url;
+    } else {
+      body.image = firstFrame.url;
+    }
   }
   const lastFrame = imageWithRoles.find(img => img.role === 'last_frame');
   if (lastFrame?.url) {
-    metadata.image_end = lastFrame.url;
+    if (isOpenAIProxy) {
+      body.image_end_url = lastFrame.url;
+    } else {
+      metadata.image_end = lastFrame.url;
+    }
   }
 
-  if (Object.keys(metadata).length > 0) body.metadata = metadata;
+  // duoyuanx 等 OpenAI-proxy 不使用 metadata 字段（后端不支持或会错误转发）
+  if (!isOpenAIProxy && Object.keys(metadata).length > 0) body.metadata = metadata;
 
   // 绝对路径拼接：从域名根开始
   const rootBase = baseUrl.replace(/\/v\d+$/, '');
@@ -762,7 +774,11 @@ async function callVolcVideoApi(
     imageCount: imageWithRoles.filter(i => i.url).length,
   });
 
-  const submitResponse = await fetch(`${baseUrl}/volc/v1/contents/generations/tasks`, {
+  // 去掉 baseUrl 末尾的 /v1 等版本号，避免路径重复（/v1/volc/v1/...）
+  const rootBase = baseUrl.replace(/\/v\d+$/, '');
+  const submitUrl = `${rootBase}/volc/v1/contents/generations/tasks`;
+  console.log('[VideoGen] Volc submit URL:', submitUrl);
+  const submitResponse = await fetch(submitUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

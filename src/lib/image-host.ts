@@ -115,8 +115,9 @@ function base64ToBlob(base64Data: string, mimeType = 'image/png'): Blob {
 async function toUploadFile(imageData: string, name?: string): Promise<{ blob: Blob; filename: string }> {
   let blob: Blob;
 
-  if (isHttpUrl(imageData)) {
-    const response = await fetch(imageData);
+  if (isHttpUrl(imageData) || imageData.startsWith('/api/images/') || imageData.startsWith('/')) {
+    const fetchUrl = imageData;
+    const response = await fetch(fetchUrl);
     if (!response.ok) {
       throw new Error(`下载图片失败: ${response.status}`);
     }
@@ -127,6 +128,15 @@ async function toUploadFile(imageData: string, name?: string): Promise<{ blob: B
     const payload = commaIndex >= 0 ? imageData.slice(commaIndex + 1) : imageData;
     const mimeType = header.match(/^data:([^;,]+)/)?.[1] || 'image/png';
     blob = base64ToBlob(payload, mimeType);
+  } else if (imageData.startsWith('local-image://')) {
+    // Try to resolve via /api/images/file/ in WebUI
+    const localPath = imageData.replace('local-image://', '');
+    const fetchUrl = `/api/images/file/${encodeURIComponent(localPath)}`;
+    const response = await fetch(fetchUrl);
+    if (!response.ok) {
+      throw new Error(`下载本地图片失败: HTTP ${response.status}`);
+    }
+    blob = await response.blob();
   } else {
     blob = base64ToBlob(imageData, 'image/png');
   }
@@ -138,8 +148,8 @@ async function toUploadFile(imageData: string, name?: string): Promise<{ blob: B
 }
 
 async function toBase64Data(imageData: string): Promise<string> {
-  // If it's a URL, fetch and convert
-  if (isHttpUrl(imageData)) {
+  // If it's a URL (HTTP or same-origin /api/images/), fetch and convert
+  if (isHttpUrl(imageData) || imageData.startsWith('/api/images/') || imageData.startsWith('/')) {
     const response = await fetch(imageData);
     const blob = await response.blob();
     const reader = new FileReader();
@@ -156,6 +166,24 @@ async function toBase64Data(imageData: string): Promise<string> {
   if (imageData.startsWith('data:')) {
     const parts = imageData.split(',');
     return parts.length === 2 ? parts[1] : imageData;
+  }
+
+  // local-image:// in WebUI - try to resolve
+  if (imageData.startsWith('local-image://')) {
+    const localPath = imageData.replace('local-image://', '');
+    const fetchUrl = `/api/images/file/${encodeURIComponent(localPath)}`;
+    const response = await fetch(fetchUrl);
+    if (response.ok) {
+      const blob = await response.blob();
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const parts = dataUrl.split(',');
+      return parts.length === 2 ? parts[1] : dataUrl;
+    }
   }
 
   // Assume already base64

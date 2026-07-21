@@ -19,6 +19,7 @@ import {
   maskApiKey as maskKey,
   updateProviderKeys,
   classifyModelByName,
+  inferModelMetadataFromCaps,
 } from '@/lib/api-key-manager';
 import { injectDiscoveryCache, type DiscoveredModelLimits } from '@/lib/ai/model-registry';
 
@@ -765,6 +766,29 @@ export const useAPIConfigStore = create<APIConfigStore>()(
               },
             }));
             console.log(`[APIConfig] Stored MemeFast metadata: ${Object.keys(memefastTypes).length} types, ${Object.keys(memefastTags).length} tags`);
+          } else {
+            // 非 MemeFast provider（如 Kuai）：通过模型名称推断元数据
+            // 这样 FeatureBindingPanel / EditProviderDialog 不依赖空数据
+            const inferredTypes: Record<string, string> = {};
+            const inferredTags: Record<string, string[]> = {};
+            for (const m of modelIds) {
+              const caps = classifyModelByName(m);
+              const meta = inferModelMetadataFromCaps(caps);
+              if (meta.type) inferredTypes[m] = meta.type;
+              if (meta.tags.length > 0) inferredTags[m] = meta.tags;
+            }
+            const providerOwnedModels = new Set([...(provider.model || []), ...modelIds]);
+            set((state) => ({
+              modelTypes: {
+                ...omitRecordKeys(state.modelTypes, providerOwnedModels),
+                ...inferredTypes,
+              },
+              modelTags: {
+                ...omitRecordKeys(state.modelTags, providerOwnedModels),
+                ...inferredTags,
+              },
+            }));
+            console.log(`[APIConfig] Inferred metadata for ${provider.name}: ${Object.keys(inferredTypes).length} types, ${Object.keys(inferredTags).length} tags`);
           }
 
           // Store ALL synced models in allSyncedModels (for model picker)

@@ -435,12 +435,30 @@ export async function installWebShims(): Promise<void> {
       let blob: Blob;
       const payloadType = payload.provider.imagePayloadType || 'file';
       if (payloadType === 'file') {
-        if (payload.imageData.startsWith('data:')) {
-          const res = await fetch(payload.imageData);
-          blob = await res.blob();
-        } else if (payload.imageData.startsWith('http')) {
-          const res = await fetch(payload.imageData);
-          blob = await res.blob();
+        // Try to convert to a fetchable URL first
+        let fetchableUrl: string | null = null;
+        if (payload.imageData.startsWith('data:') || payload.imageData.startsWith('http')) {
+          fetchableUrl = payload.imageData;
+        } else if (payload.imageData.startsWith('/api/images/') || payload.imageData.startsWith('/')) {
+          // Same-origin relative path - fetch directly
+          fetchableUrl = payload.imageData;
+        } else if (payload.imageData.startsWith('local-image://')) {
+          // Try to resolve via /api/images/file/
+          const localPath = payload.imageData.replace('local-image://', '');
+          fetchableUrl = `/api/images/file/${encodeURIComponent(localPath)}`;
+        }
+
+        if (fetchableUrl) {
+          try {
+            const res = await fetch(fetchableUrl);
+            if (res.ok) {
+              blob = await res.blob();
+            } else {
+              return { success: false, error: `无法获取图片: HTTP ${res.status}` };
+            }
+          } catch {
+            return { success: false, error: '无法获取图片: 网络请求失败' };
+          }
         } else {
           return { success: false, error: 'Unsupported image data format' };
         }

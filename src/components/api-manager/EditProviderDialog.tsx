@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { classifyModelByName, inferModelMetadataFromCaps } from "@/lib/api-key-manager";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -100,9 +101,17 @@ export function EditProviderDialog({
           // 合并已有选择
           const currentSet = new Set(provider.model || []);
           // 自动勾选推荐模型：评分 >= 60 的最多 8 个
+          // 优先用 store 中的 metadata（MemeFast 精确数据），否则用 classifyModelByName 推断
           const scored = updated.allSyncedModels.map(m => {
-            const meta = useAPIConfigStore.getState().modelTags[m];
-            const type = useAPIConfigStore.getState().modelTypes[m];
+            let meta = useAPIConfigStore.getState().modelTags[m];
+            let type = useAPIConfigStore.getState().modelTypes[m];
+            // Fallback：通过名称推断元数据（非 MemeFast provider 或首次同步）
+            if (!type && !meta) {
+              const caps = classifyModelByName(m);
+              const inferred = inferModelMetadataFromCaps(caps);
+              type = inferred.type;
+              meta = inferred.tags;
+            }
             let score = 30;
             const tags = meta ?? [];
             const tagSet = new Set(tags);

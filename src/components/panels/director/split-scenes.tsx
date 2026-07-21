@@ -1674,8 +1674,8 @@ export function SplitScenes({ onBack, onGenerateVideos }: SplitScenesProps) {
           
           let imageData = url;
           
-          // For local-image:// protocol, read the image first
-          if (url.startsWith('local-image://')) {
+          // For local-image:// protocol or /api/images/ paths (WebUI), read the image first
+          if (url.startsWith('local-image://') || url.startsWith('/api/images/')) {
             const fullBase64 = await readImageAsBase64(url);
             if (!fullBase64) {
               console.warn('[SplitScenes] Failed to read local image:', url);
@@ -1684,20 +1684,10 @@ export function SplitScenes({ onBack, onGenerateVideos }: SplitScenesProps) {
             imageData = fullBase64;
           }
           
-          // Upload to configured image host
-          console.log('[SplitScenes] Uploading image to image host...');
-          const uploadResult = await uploadToImageHost(imageData, {
-            name: `scene_${sceneId}_frame_${Date.now()}`,
-            expiration: 15552000, // 180 days
-          });
-          
-          if (uploadResult.success && uploadResult.url) {
-            console.log('[SplitScenes] Uploaded image to image host:', uploadResult.url.substring(0, 60));
-            return uploadResult.url;
-          } else {
-            console.warn('[SplitScenes] Image upload failed:', uploadResult.error);
-            throw new Error(uploadResult.error || '图片上传失败');
-          }
+          // ⚠️ 2026-07-21: Catbox is unreliable, bypass it — go straight to base64
+          console.log('[SplitScenes] ⚠️ SKIPPING image host (Catbox broken), using base64 directly');
+          // 豆包 volc API 原生支持 data: URL，不需要图床中转
+          return imageData;
         } catch (e) {
           console.warn('[SplitScenes] Failed to upload image:', e);
           throw e;

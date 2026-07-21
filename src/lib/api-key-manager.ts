@@ -131,6 +131,40 @@ export function classifyModelByName(modelName: string): ModelCapability[] {
   return ['text'];
 }
 
+/**
+ * 从 classifyModelByName 返回的 capabilities 推断 MemeFast 兼容的 modelType 和 modelTags。
+ * 用于非 MemeFast provider（如 Kuai）同步模型时生成元数据，
+ * 使 FeatureBindingPanel 和 EditProviderDialog 评分逻辑不用空数据。
+ */
+export function inferModelMetadataFromCaps(
+  caps: ModelCapability[]
+): { type: string; tags: string[] } {
+  if (caps.length === 0) return { type: '', tags: [] };
+
+  const hasGen = (c: ModelCapability) => caps.includes(c);
+
+  if (hasGen('video_generation')) {
+    return { type: '音视频', tags: ['视频'] };
+  }
+  if (hasGen('image_generation')) {
+    return { type: '图像', tags: ['绘画'] };
+  }
+  if (hasGen('embedding')) {
+    return { type: '检索', tags: ['文本嵌入'] };
+  }
+
+  // 文本类模型：根据能力组合推断标签
+  const tags: string[] = [];
+  if (hasGen('text')) {
+    tags.push('对话');
+    if (hasGen('vision')) tags.push('识图');
+    if (hasGen('reasoning')) tags.push('思考');
+    if (hasGen('function_calling')) tags.push('工具');
+  }
+
+  return { type: '文本', tags: tags.length > 0 ? tags : ['对话'] };
+}
+
 // ==================== Endpoint Routing ====================
 
 /**

@@ -1,26 +1,29 @@
 # 工作日志
 
-## 2026-07-18 15:41 — 启动项目
-- 锁定项目：`/Users/chee/Projects/moyin-creator-webui`
-- 焦点：moyin-creator-webui 启动与开发
-- 状态：从 07-16 的 WebUI 开发会话恢复
+## 2026-07-21
 
-### 启动结果 ✅
-- 存储服务 (port 3002): healthz OK, 数据在 ~/Documents/moyin-creator/data/
-- Vite dev server (port 5173): HTTP 200, 442ms ready
-- 两个服务均已启动
-- 存储有 2 个空项目目录 warning（正常，历史遗留）
+### 13:40 视频生成 "Unsupported image data format" 修复
 
-## 2026-07-18 15:56 — 老板要求启动项目
-- `npm run dev` 执行 → dev.mjs 端口监听检测 15s 超时（脚本 bug），但存储子进程已成功启动
-- 手动确认 storage (3002) 在监听
-- 独立启动 `npx vite --config vite.config.web.ts --host 0.0.0.0`，403ms 就绪
-- 双服务健康检查通过 ✅
-- 浏览器访问 http://localhost:5174 正常
+**问题**: AI 导演面板"生成视频"按钮报错 `分镜 1 生成失败: Unsupported image data format`
 
-## 2026-07-18 17:05 — 启动项目（新会话）
-- 端口 3002 被旧进程占用，清理后重跑
-- `npm run dev` 的 waitForPort 检测有 bug（127.0.0.1 vs 0.0.0.0 绑定差异），storage 服务实际启动成功但脚本超时报错
-- 手动启动 Vite → 348ms 就绪
-- 双服务健康检查通过 ✅
-- 访问地址 http://localhost:5174
+**根因**: WebUI 中 `image-storage.ts` 的 `saveImageToLocal` 将图片保存到 HTTP 存储服务器，返回路径格式为 `/api/images/scenes/xxx.png`。这个路径既不是 `http(s)://` 开头（不被 `isHttpImageUrl` 识别），也不是 `local-image://` 格式（只在 Electron 中可用）。当 `convertToHttpUrl` 尝试将此路径上传到 Catbox 图床时，`web-shim.ts` 的 `upload` 函数中 `payloadType === 'file'` 分支无法识别 `/` 开头的路径，返回 `Unsupported image data format` 错误。
+
+**修复（3 文件）**:
+1. `src/lib/image-storage.ts` — `readImageAsBase64`:
+   - 增加 `/api/images/` 路径的 fetch+转换支持
+   - 增加 `local-image://` 在 WebUI 中的 fallback（尝试通过 `/api/images/file/` 读取）
+2. `src/components/panels/director/split-scenes.tsx` — 内部 `convertToHttpUrl`:
+   - 增加 `/api/images/` 前缀的处理，在上传前先转为 base64
+3. `src/components/panels/director/use-video-generation.ts` — 公共 `convertToHttpUrl`:
+   - 同上，确保 S 级面板也受益于修复
+
+**TypeScript 检查**: 修改文件无新增类型错误。
+
+### 13:00 modelTags 同步 + 剧本分析 404 排查
+
+**modelTags 同步**（3 文件修改）:
+- `src/lib/api-key-manager.ts`: 新增 `inferModelMetadataFromCaps` 函数
+- `src/stores/api-config-store.ts`: `syncProviderModels` 对非 MemeFast provider 写入推断元数据
+- `src/components/api-manager/EditProviderDialog.tsx`: 评分逻辑 fallback
+
+**剧本分析 404**: 排查后确认已修复，Kuai API 正常。
