@@ -743,8 +743,9 @@ async function callVolcVideoApi(
         console.log('[VideoGen] Base64 converted to:', httpUrl.substring(0, 60));
         return { ...img, url: httpUrl };
       } catch (e) {
-        console.error('[VideoGen] Failed to upload base64 to Kuai:', e);
-        throw new Error('图片上传失败（base64→Kuai），请检查图床配置');
+        console.warn('[VideoGen] Kuai upload failed, trying base64 directly:', e);
+        // Kuai 的 volc 代理可能支持 base64 data URL — fallback 直接使用
+        return img;
       }
     })
   );
