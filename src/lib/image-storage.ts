@@ -153,7 +153,7 @@ export async function readImageAsBase64(imagePath: string): Promise<string | nul
   }
 
   // If it's a remote URL, fetch and convert
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('/api/images/')) {
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('/api/images/') || imagePath.startsWith('/api/storage/')) {
     try {
       const response = await fetch(imagePath);
       const blob = await response.blob();

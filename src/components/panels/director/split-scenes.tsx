@@ -1674,8 +1674,8 @@ export function SplitScenes({ onBack, onGenerateVideos }: SplitScenesProps) {
           
           let imageData = url;
           
-          // For local-image:// protocol or /api/images/ paths (WebUI), read the image first
-          if (url.startsWith('local-image://') || url.startsWith('/api/images/')) {
+          // For local-image:// protocol, /api/images/, or /api/storage/ paths (WebUI), read the image first
+          if (url.startsWith('local-image://') || url.startsWith('/api/images/') || url.startsWith('/api/storage/')) {
             const fullBase64 = await readImageAsBase64(url);
             if (!fullBase64) {
               console.warn('[SplitScenes] Failed to read local image:', url);
