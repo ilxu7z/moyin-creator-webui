@@ -6,6 +6,13 @@ function apiProxyPlugin(): Plugin {
   return {
     name: 'api-proxy',
     configureServer(server) {
+      // 强制禁用所有模块缓存（开发调试用）
+      server.middlewares.use((req, res, next) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        next();
+      });
       server.middlewares.use('/__api_proxy', async (req, res) => {
         // CORS 预检
         if (req.method === 'OPTIONS') {
