@@ -42,6 +42,8 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  AlertCircle,
+  RefreshCw,
   CheckCircle2,
   Copy,
 } from "lucide-react";
@@ -88,6 +90,7 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
     addCharacterView,
     selectCharacter,
     generationStatus,
+    generationError,
     generatingCharacterId,
     setGenerationStatus,
     setGeneratingCharacter,
@@ -327,7 +330,8 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
   };
 
   // 创建新角色并生成图片（始终新建，不会覆盖已有角色）
-  const handleCreateAndGenerate = async () => {
+  // 若传入 regenerateTargetId，则更新该已有角色的形象而非新建（用于预览视图的“重新生成”）
+  const handleCreateAndGenerate = async (regenerateTargetId?: string) => {
     if (!name.trim()) {
       toast.error("请输入角色名称");
       return;
@@ -341,35 +345,63 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
       return;
     }
 
-    // 始终创建新角色
-    const targetId = addCharacter({
-      name: name.trim(),
-      description: description.trim(),
-      visualTraits: "",
-      gender: gender || undefined,
-      age: age || undefined,
-      personality: personality.trim() || undefined,
-      role: role.trim() || undefined,
-      traits: traits.trim() || undefined,
-      skills: skills.trim() || undefined,
-      keyActions: keyActions.trim() || undefined,
-      appearance: appearance.trim() || undefined,
-      relationships: relationships.trim() || undefined,
-      tags: tags.length > 0 ? tags : undefined,
-      notes: notes.trim() || undefined,
-      referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-      styleId: styleId === "random" ? undefined : styleId,
-      views: [],
-      folderId: currentFolderId,
-      projectId: activeProjectId || undefined,
-      // === 6层身份锚点（角色一致性）===
-      identityAnchors: identityAnchors,
-      negativePrompt: charNegativePrompt,
-      // === 集作用域 ===
-      linkedEpisodeId: sourceEpisodeId,
-    });
-    selectCharacter(targetId);
-    onCharacterCreated?.(targetId);
+    // 重新生成：复用已有角色 id（保留原角色，不新建）；否则新建角色
+    let targetId: string;
+    if (regenerateTargetId) {
+      targetId = regenerateTargetId;
+      // 更新角色信息（名称/描述等可能被修改过）
+      updateCharacter(targetId, {
+        name: name.trim(),
+        description: description.trim(),
+        visualTraits: "",
+        gender: gender || undefined,
+        age: age || undefined,
+        personality: personality.trim() || undefined,
+        role: role.trim() || undefined,
+        traits: traits.trim() || undefined,
+        skills: skills.trim() || undefined,
+        keyActions: keyActions.trim() || undefined,
+        appearance: appearance.trim() || undefined,
+        relationships: relationships.trim() || undefined,
+        tags: tags.length > 0 ? tags : undefined,
+        notes: notes.trim() || undefined,
+        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+        styleId: styleId === "random" ? undefined : styleId,
+        folderId: currentFolderId,
+        projectId: activeProjectId || undefined,
+        identityAnchors: identityAnchors,
+        negativePrompt: charNegativePrompt,
+      });
+    } else {
+      targetId = addCharacter({
+        name: name.trim(),
+        description: description.trim(),
+        visualTraits: "",
+        gender: gender || undefined,
+        age: age || undefined,
+        personality: personality.trim() || undefined,
+        role: role.trim() || undefined,
+        traits: traits.trim() || undefined,
+        skills: skills.trim() || undefined,
+        keyActions: keyActions.trim() || undefined,
+        appearance: appearance.trim() || undefined,
+        relationships: relationships.trim() || undefined,
+        tags: tags.length > 0 ? tags : undefined,
+        notes: notes.trim() || undefined,
+        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+        styleId: styleId === "random" ? undefined : styleId,
+        views: [],
+        folderId: currentFolderId,
+        projectId: activeProjectId || undefined,
+        // === 6层身份锚点（角色一致性）===
+        identityAnchors: identityAnchors,
+        negativePrompt: charNegativePrompt,
+        // === 集作用域 ===
+        linkedEpisodeId: sourceEpisodeId,
+      });
+      selectCharacter(targetId);
+      onCharacterCreated?.(targetId);
+    }
 
     // 开始生成图片
     setGenerationStatus('generating');
@@ -419,11 +451,21 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
         referenceImages,
         styleId,
       });
-      
-      setPreviewUrl(result.imageUrl);
+
+      // 生成成功即自动保存到角色视图 + 素材库，让角色库卡片立即显示“已生成”
+      // （不再强制用户手动点“保存设定图”才落库）
+      let savedUrl = result.imageUrl;
+      try {
+        savedUrl = await persistCharacterImage(result.imageUrl, targetId);
+      } catch (saveErr) {
+        // 图片保存失败不阻塞预览，仅提示；图片本身已生成成功
+        console.error('[CharacterGen] 自动保存失败，仍展示预览:', saveErr);
+      }
+
+      setPreviewUrl(savedUrl);
       setPreviewCharacterId(targetId);
       setGenerationStatus('completed');
-      toast.success("图片生成完成，请预览确认");
+      toast.success("图片生成完成，已自动保存到角色库");
     } catch (error) {
       const err = error as Error;
       setGenerationStatus('error', err.message);
@@ -433,38 +475,45 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
     }
   };
 
+  // 将生成的图片持久化到角色视图 + 素材库，返回最终可用的图片地址（本地路径 or 原 URL）
+  const persistCharacterImage = async (imageUrl: string, characterId: string): Promise<string> => {
+    // Save image to local storage
+    const localPath = await saveImageToLocal(
+      imageUrl,
+      'characters',
+      `${(name || '角色').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.png`
+    );
+
+    // Save view（addCharacterView 会自动替换同类型旧视图 + 更新 thumbnailUrl）
+    addCharacterView(characterId, {
+      viewType: 'front',
+      imageUrl: localPath,
+    });
+
+    const visualTraits = `${name} character, ${(description || '').substring(0, 200)}`;
+    updateCharacter(characterId, { visualTraits });
+
+    // 同步归档到素材库 AI图片 文件夹
+    const aiFolderId = getOrCreateCategoryFolder('ai-image');
+    addMediaFromUrl({
+      url: localPath,
+      name: `角色-${name || '未命名'}`,
+      type: 'image',
+      source: 'ai-image',
+      folderId: aiFolderId,
+      projectId: activeProjectId || undefined,
+    });
+
+    return localPath;
+  };
+
   const handleSavePreview = async () => {
     if (!previewUrl || !previewCharacterId) return;
 
     toast.loading("正在保存图片到本地...", { id: 'saving-preview' });
     
     try {
-      // Save image to local storage
-      const localPath = await saveImageToLocal(
-        previewUrl, 
-        'characters', 
-        `${name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.png`
-      );
-
-      // Save view with local path
-      addCharacterView(previewCharacterId, {
-        viewType: 'front',
-        imageUrl: localPath,
-      });
-
-      const visualTraits = `${name} character, ${description.substring(0, 200)}`;
-      updateCharacter(previewCharacterId, { visualTraits });
-
-      // 同步归档到素材库 AI图片 文件夹
-      const aiFolderId = getOrCreateCategoryFolder('ai-image');
-      addMediaFromUrl({
-        url: localPath,
-        name: `角色-${name || '未命名'}`,
-        type: 'image',
-        source: 'ai-image',
-        folderId: aiFolderId,
-        projectId: activeProjectId || undefined,
-      });
+      await persistCharacterImage(previewUrl, previewCharacterId);
 
       setPreviewUrl(null);
       setPreviewCharacterId(null);
@@ -505,7 +554,7 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
           <Button onClick={handleSavePreview} className="w-full">
             保存设定图
           </Button>
-          <Button onClick={handleCreateAndGenerate} variant="outline" className="w-full" disabled={isGenerating}>
+          <Button onClick={() => handleCreateAndGenerate(previewCharacterId || undefined)} variant="outline" className="w-full" disabled={isGenerating}>
             重新生成
           </Button>
           <Button onClick={handleDiscardPreview} variant="ghost" className="w-full text-muted-foreground" size="sm">
@@ -966,15 +1015,30 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
 
           {/* Action button - inside scroll area */}
           <div className="pt-2 pb-4 space-y-2">
+            {generationStatus === 'error' && generationError && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <div className="min-w-0 gap-1">
+                  <p className="font-medium">上次生成失败</p>
+                  <p className="break-words opacity-80">{generationError}</p>
+                </div>
+              </div>
+            )}
             <Button 
-              onClick={handleCreateAndGenerate} 
+              onClick={() => handleCreateAndGenerate()}
               className="w-full"
+              variant={generationStatus === 'error' ? 'destructive' : 'default'}
               disabled={isGenerating || !name.trim() || !description.trim() || selectedElements.length === 0}
             >
               {isGenerating ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   生成中...
+                </>
+              ) : generationStatus === 'error' ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  生成失败，点击重试
                 </>
               ) : (
                 <>
