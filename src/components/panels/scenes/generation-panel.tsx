@@ -1891,6 +1891,8 @@ ${gridItemsZh}
         });
         setContactSheetTask(parentSceneId, { status: 'done', progress: 100, message: `完成，已创建 ${createdVariantIds.length} 个子场景` });
         if (createdVariantIds.length > 0) {
+          // 从剧本跳转而来：将已生成的库场景（父场景）关联回源剧本场景
+          linkSceneToScript?.(parentSceneId);
           toast.success(`场景「${parentSceneName}」联合图已切割保存，共 ${createdVariantIds.length} 个视角子场景（点击展开查看）`);
         } else {
           toast.warning(`场景「${parentSceneName}」联合图已保存，但未能创建子场景（切割结果: ${splitResults.length} 个）`);
