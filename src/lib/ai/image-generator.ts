@@ -827,7 +827,13 @@ export async function submitGridImageRequest(params: {
     requestBody.resolution = resolution;
   }
   if (referenceImages && referenceImages.length > 0) {
-    requestBody.image_urls = referenceImages;
+    // 压缩参考图（与 Gemini 路径一致的 compressReferenceImage，最长边 768）
+    // 避免 14 张大 base64 data URI 直接塞进请求 body 导致上游处理慢/超时（合并生成卡死主因）
+    const compressedRefs = await Promise.all(referenceImages.map((img) => compressReferenceImage(img)));
+    const origSize = referenceImages.reduce((s, r) => s + r.length, 0);
+    const compSize = compressedRefs.reduce((s, r) => s + r.length, 0);
+    console.log(`[GridImageAPI] Compressed ${referenceImages.length} refs: ${(origSize / 1024).toFixed(0)}KB → ${(compSize / 1024).toFixed(0)}KB`);
+    requestBody.image_urls = compressedRefs;
   }
 
   console.log('[GridImageAPI] Submitting to', endpoint);
@@ -836,34 +842,50 @@ export async function submitGridImageRequest(params: {
     // 每次重试动态取当前 key（利用 keyManager rotate 后的新 key）
     const currentApiKey = keyManager?.getCurrentKey?.() || apiKey;
     if (signal?.aborted) throw new Error('用户已取消');
-    const response = await corsFetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${currentApiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      // 通知 keyManager 处理错误（触发 rotate）
-      if (keyManager?.handleError) {
-        keyManager.handleError(response.status, errorText);
-      }
-      let errorMessage = `API 失败: ${response.status}`;
-      try {
-        const errJson = JSON.parse(errorText);
-        errorMessage = errJson.error?.message || errJson.message || errorMessage;
-      } catch { /* ignore */ }
-      if (errorText && errorText.length < 200) errorMessage = errorMessage || errorText;
-      const err = new Error(errorMessage) as Error & { status?: number };
-      err.status = response.status;
-      throw err;
+    // 标准 images/generations 路径补请求超时：避免 API 挂起（建连成功但惎不响应）时 fetch 无限等待
+    // 合并生成带参考图（base64 data URI）较慢，用 90s；外部 signal 取消时同步取消内部 controller
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(new DOMException('图片生成请求超时（90秒），API 可能繁忙，已自动重试', 'TimeoutError')),
+      90000
+    );
+    const onExternalAbort = () => controller.abort(signal?.reason || new Error('用户已取消'));
+    if (signal) {
+      signal.addEventListener('abort', onExternalAbort, { once: true });
     }
+    try {
+      const response = await corsFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentApiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
 
-    return response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        // 通知 keyManager 处理错误（触发 rotate）
+        if (keyManager?.handleError) {
+          keyManager.handleError(response.status, errorText);
+        }
+        let errorMessage = `API 失败: ${response.status}`;
+        try {
+          const errJson = JSON.parse(errorText);
+          errorMessage = errJson.error?.message || errJson.message || errorMessage;
+        } catch { /* ignore */ }
+        if (errorText && errorText.length < 200) errorMessage = errorMessage || errorText;
+        const err = new Error(errorMessage) as Error & { status?: number };
+        err.status = response.status;
+        throw err;
+      }
+
+      return await response.json();
+    } finally {
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener('abort', onExternalAbort);
+    }
   }, {
     maxRetries: 3,
     baseDelay: 3000,
