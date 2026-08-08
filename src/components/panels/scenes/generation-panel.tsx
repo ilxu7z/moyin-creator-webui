@@ -90,7 +90,7 @@ export function GenerationPanel({ selectedScene, onSceneCreated }: GenerationPan
     setContactSheetTask,
   } = useSceneStore();
 
-  const { pendingSceneData, setPendingSceneData } = useMediaPanelStore();
+  const { pendingSceneData, setPendingSceneData, linkSceneToScript } = useMediaPanelStore();
   const { addMediaFromUrl, getOrCreateCategoryFolder } = useMediaStore();
   
   // 获取当前项目的分镜数据，用于提取场景道具
@@ -691,6 +691,8 @@ ${gridItemsZh}
       setPreviewUrl(result.imageUrl);
       setPreviewSceneId(targetId);
       setGenerationStatus('completed');
+      // 从剧本跳转而来：将库场景关联回源剧本场景（更新 sceneLibraryId + status）
+      linkSceneToScript?.(targetId);
       toast.success("场景概念图生成完成，请预览确认");
     } catch (error) {
       const err = error as Error;

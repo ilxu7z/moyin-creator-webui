@@ -23,6 +23,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useAPIConfigStore } from "@/stores/api-config-store";
 import { getFeatureConfig, getFeatureNotConfiguredMessage } from "@/lib/ai/feature-router";
 import { useCharacterLibraryStore } from "@/stores/character-library-store";
+import { useSceneStore } from "@/stores/scene-store";
 import { useMediaPanelStore } from "@/stores/media-panel-store";
 import { parseScript, generateShotList, generateScriptFromIdea } from "@/lib/script/script-parser";
 import { 
@@ -138,7 +139,8 @@ export function ScriptView() {
     characters: allCharacters, 
     selectCharacter: selectLibraryCharacter,
   } = useCharacterLibraryStore();
-  const { setActiveTab, goToDirectorWithData, goToCharacterWithData, goToSceneWithData, activeEpisodeIndex, enterEpisode, setPendingScriptCharacterLink } = useMediaPanelStore();
+  const { selectScene: selectLibraryScene } = useSceneStore();
+  const { setActiveTab, goToDirectorWithData, goToCharacterWithData, goToSceneWithData, activeEpisodeIndex, enterEpisode, setPendingScriptCharacterLink, setPendingSceneLink } = useMediaPanelStore();
 
   // 选中状态
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -1626,7 +1628,7 @@ export function ScriptView() {
 
       toast.success(`已跳转到角色库，角色「${character.name}」信息已填充到生成控制台`);
     },
-    [scriptData, styleId, setActiveTab, selectLibraryCharacter, goToCharacterWithData, activeEpisodeIndex, activeEpisodeId]
+    [scriptData, styleId, setActiveTab, selectLibraryCharacter, goToCharacterWithData, activeEpisodeIndex, activeEpisodeId, projectId]
   );
 
   // 获取当前风格的 tokens（从统一风格库导入）
@@ -1642,6 +1644,14 @@ export function ScriptView() {
       if (!scene) {
         setActiveTab("scenes");
         toast.info("已跳转到场景库");
+        return;
+      }
+
+      // 已关联场景库：直接选中，避免每次跳转重复创建孤儿场景
+      if (scene.sceneLibraryId) {
+        selectLibraryScene(scene.sceneLibraryId);
+        setActiveTab("scenes");
+        toast.info(`已跳转到场景库，选中「${scene.name || scene.location}」`);
         return;
       }
 
@@ -1698,6 +1708,9 @@ export function ScriptView() {
           promptLanguage: scriptProject?.promptLanguage || 'zh',
         });
 
+        // 源剧本场景关联存入持久字段（不与 pendingSceneData 绑定，避免被表单填充 useEffect 清空）
+        setPendingSceneLink({ scriptSceneId: scene.id, projectId });
+
         const viewpointCount = scene.viewpoints!.length;
         toast.success(
           `已跳转到场景库，场景「${scene.name || scene.location}」已填充\n` +
@@ -1733,9 +1746,12 @@ export function ScriptView() {
         toast.success(
           `已跳转到场景库，场景「${scene.name || scene.location}」基础信息已填充`
         );
+
+        // 源剧本场景关联存入持久字段（不与 pendingSceneData 绑定，避免被表单填充 useEffect 清空）
+        setPendingSceneLink({ scriptSceneId: scene.id, projectId });
       }
     },
-    [scriptData, styleId, setActiveTab, goToSceneWithData, shots, activeEpisodeIndex, activeEpisodeId]
+    [scriptData, styleId, setActiveTab, selectLibraryScene, goToSceneWithData, shots, activeEpisodeIndex, activeEpisodeId, setPendingSceneLink, projectId]
   );
 
   // 跳转到AI导演

@@ -103,6 +103,13 @@ export interface PendingScriptCharacterLink {
   projectId: string;
 }
 
+// 场景库生成成功后，将库场景关联回源剧本场景的持久字段。
+// 与角色链路同构：与 pendingSceneData 分离，不被表单填充 useEffect 清空。
+export interface PendingSceneLink {
+  scriptSceneId: string;
+  projectId: string;
+}
+
 // Data passed from script panel to character library
 export interface PendingCharacterData {
   name: string;
@@ -228,6 +235,11 @@ interface MediaPanelStore {
   // 与 pendingCharacterData 分离的持久关联字段（含源剧本角色 id + 项目 id），不被表单填充清空
   pendingScriptCharacterLink: PendingScriptCharacterLink | null;
   setPendingScriptCharacterLink: (link: PendingScriptCharacterLink | null) => void;
+  // 场景库生成成功后，将库场景关联回源剧本场景（更新 sceneLibraryId + status）
+  linkSceneToScript: (sceneLibraryId: string) => void;
+  // 与 pendingSceneData 分离的持久关联字段（含源剧本场景 id + 项目 id），不被表单填充清空
+  pendingSceneLink: PendingSceneLink | null;
+  setPendingSceneLink: (link: PendingSceneLink | null) => void;
   // Scene library data passing
   pendingSceneData: PendingSceneData | null;
   setPendingSceneData: (data: PendingSceneData | null) => void;
@@ -305,12 +317,17 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
   }),
   // 角色库生成成功后，把库角色关联回源剧本角色（更新 characterLibraryId + status）
   pendingScriptCharacterLink: null,
-  setPendingScriptCharacterLink: (link) => set({ pendingScriptCharacterLink: link }),
+  setPendingScriptCharacterLink: (link) => {
+    console.log('[MediaPanel][link] setPendingScriptCharacterLink =', link);
+    set({ pendingScriptCharacterLink: link });
+  },
   linkCharacterToScript: (libraryCharId) => {
+    console.log('[MediaPanel][link] linkCharacterToScript called, libraryCharId =', libraryCharId);
     // 从独立持久字段读取（不与 pendingCharacterData 耦合，后者被表单填充 useEffect 清空）
     const link = useMediaPanelStore.getState().pendingScriptCharacterLink;
+    console.log('[MediaPanel][link] pendingScriptCharacterLink =', link);
     const scriptCharId = link?.scriptCharacterId;
-    if (!scriptCharId) return; // 非从剧本跳转而来，无需回写
+    if (!scriptCharId) { console.warn('[MediaPanel][link] 无 sourceScriptCharacterId，跳过回写'); return; } // 非从剧本跳转而来，无需回写
 
     const projectId = link.projectId;
 
@@ -318,12 +335,37 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
     set({ pendingScriptCharacterLink: null });
 
     try {
+      console.log('[MediaPanel][link] 回写 updateCharacter(projectId=%s, scriptCharId=%s, libraryCharId=%s)', projectId, scriptCharId, libraryCharId);
       useScriptStore.getState().updateCharacter(projectId, scriptCharId, {
         characterLibraryId: libraryCharId,
         status: "completed",
       });
     } catch (e) {
       console.error("[MediaPanel] 关联源剧本角色失败:", e);
+    }
+  },
+  // 场景库生成成功后，把库场景关联回源剧本场景（更新 sceneLibraryId + status）
+  pendingSceneLink: null,
+  setPendingSceneLink: (link) => {
+    console.log('[MediaPanel][scene-link] setPendingSceneLink =', link);
+    set({ pendingSceneLink: link });
+  },
+  linkSceneToScript: (sceneLibraryId) => {
+    console.log('[MediaPanel][scene-link] linkSceneToScript called, sceneLibraryId =', sceneLibraryId);
+    const link = useMediaPanelStore.getState().pendingSceneLink;
+    console.log('[MediaPanel][scene-link] pendingSceneLink =', link);
+    const scriptSceneId = link?.scriptSceneId;
+    if (!scriptSceneId) { console.warn('[MediaPanel][scene-link] 无 sourceScriptSceneId，跳过回写'); return; } // 非从剧本跳转而来，无需回写
+    const projectId = link.projectId;
+    set({ pendingSceneLink: null }); // 回写前清空，避免后续重复绑定
+    try {
+      console.log('[MediaPanel][scene-link] 回写 updateScene(projectId=%s, scriptSceneId=%s, sceneLibraryId=%s)', projectId, scriptSceneId, sceneLibraryId);
+      useScriptStore.getState().updateScene(projectId, scriptSceneId, {
+        sceneLibraryId,
+        status: "completed",
+      });
+    } catch (e) {
+      console.error("[MediaPanel] 关联源剧本场景失败:", e);
     }
   },
   // Scene library data passing
