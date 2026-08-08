@@ -67,14 +67,21 @@ function apiProxyPlugin(): Plugin {
           // Content-Type: multipart/form-data; boundary=... which is required for the
           // target server to parse the form fields correctly (e.g. file uploads to catbox).
           const incomingContentType = req.headers['content-type'];
-          if (incomingContentType && !fetchHeaders.has('content-type')) {
-            fetchHeaders.set('content-type', incomingContentType);
-          }
+          // CRITICAL: Browser abort/断开时同步中止上游请求。
+          // 前端 submitGridImageRequest 有 90s AbortController → corsFetch 透传 signal →
+          // 本中间件收到中止的连接事件（req 'close'/'aborted'）→ 这里 abort 上游 fetch。
+          // 否则上游 API 挂起时，即使前端超时中止，Vite 中间件的 fetch 仍无限等待，
+          // 请求永久悬挂（合并生成卡死根因之一）。
+          const upstreamController = new AbortController();
+          const onReqClose = () => upstreamController.abort();
+          req.on('close', onReqClose);
+          req.on('aborted', onReqClose);
 
           const resp = await fetch(targetUrl, {
             method: targetMethod,
             headers: fetchHeaders,
             body: body.length > 0 ? body : undefined,
+            signal: upstreamController.signal,
           });
 
           const respBuf = new Uint8Array(await resp.arrayBuffer());
@@ -87,6 +94,17 @@ function apiProxyPlugin(): Plugin {
           res.writeHead(resp.status);
           res.end(Buffer.from(respBuf));
         } catch (err: any) {
+          if (err?.name === 'AbortError') {
+            // 主动中止（浏览器已断开/超时），标记请求已取消，不报 502
+            console.log('[ApiProxy] 请求已被用户取消/超时中止');
+            if (!res.headersSent) {
+              res.writeHead(499);
+              res.end();
+            } else {
+              res.destroy();
+            }
+            return;
+          }
           console.error(`[ApiProxy] Error:`, err.message);
           res.writeHead(502);
           res.end(JSON.stringify({ error: 'Proxy error', detail: err.message }));

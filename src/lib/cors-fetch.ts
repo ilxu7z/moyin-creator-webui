@@ -61,6 +61,7 @@ export async function corsFetch(
       'x-target-headers': JSON.stringify(headers),
     },
     body: init?.body,
+    signal: init?.signal,
   };
 
   return fetch(proxyUrl, proxyInit);
