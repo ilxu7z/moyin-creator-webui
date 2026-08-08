@@ -521,7 +521,11 @@ export const useMediaStore = create<MediaStore>()(
           const localPath = await saveImageToLocal(url, category, filename);
           
           // Only update if we got a local path (not the original URL back)
-          if (localPath !== url && localPath.startsWith('local-image://')) {
+          // WebUI: storage server 返回 /api/images/...（服务器端落盘）；Electron: local-image://
+          const isLocalPath = localPath !== url && (
+            localPath.startsWith('local-image://') || localPath.startsWith('/api/images/')
+          );
+          if (isLocalPath) {
             set((state) => ({
               mediaFiles: state.mediaFiles.map((f) =>
                 f.id === id ? { ...f, url: localPath } : f
@@ -534,7 +538,10 @@ export const useMediaStore = create<MediaStore>()(
           if (thumbnailUrl && thumbnailUrl.startsWith('data:')) {
             const thumbFilename = `thumb_${name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.png`;
             const thumbLocalPath = await saveImageToLocal(thumbnailUrl, category, thumbFilename);
-            if (thumbLocalPath !== thumbnailUrl && thumbLocalPath.startsWith('local-image://')) {
+            const thumbIsLocal = thumbLocalPath !== thumbnailUrl && (
+              thumbLocalPath.startsWith('local-image://') || thumbLocalPath.startsWith('/api/images/')
+            );
+            if (thumbIsLocal) {
               set((state) => ({
                 mediaFiles: state.mediaFiles.map((f) =>
                   f.id === id ? { ...f, thumbnailUrl: thumbLocalPath } : f

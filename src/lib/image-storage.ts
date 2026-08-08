@@ -58,25 +58,49 @@ export async function saveImageToLocal(
 
   // 浏览器 Web UI 模式 — 通过 HTTP storage server 保存
   try {
-    // 获取图片数据：支持 data: URL 和 HTTP URL
-    let imageData = url;
+    // http/https URL：直接传给 storage server 服务器端 fetch（绕开前端 base64 大 body，
+    // 对 2MB+ 视频尤其可靠）。storage server 已支持 data:/http:/https: 三种输入。
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      const resp = await fetch(url.startsWith('/') ? url : `/__api_proxy?url=${encodeURIComponent(url)}`);
-      if (resp.ok) {
-        const blob = await resp.blob();
+      const resp = await fetch(`/api/images/${encodeURIComponent(category)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: url, filename }),
+      });
+      const result = await resp.json();
+      if (result.success && result.localPath) {
+        console.log(`Image saved locally (WebUI, server-fetch): ${result.localPath}`);
+        return result.localPath;
+      }
+      console.error('Failed to save http URL via server-fetch:', result.error);
+      // 服务器端 fetch 失败时退回前端下载 base64 方案
+      let imageData = url.startsWith('/') ? url : `/__api_proxy?url=${encodeURIComponent(url)}`;
+      const blobResp = await fetch(imageData);
+      if (blobResp.ok) {
+        const blob = await blobResp.blob();
         imageData = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
+        const resp2 = await fetch(`/api/images/${encodeURIComponent(category)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: imageData, filename }),
+        });
+        const result2 = await resp2.json();
+        if (result2.success && result2.localPath) {
+          return result2.localPath;
+        }
       }
+      return url;
     }
 
+    // data: URL 或本地相对路径：直接 POST base64/路径
     const resp = await fetch(`/api/images/${encodeURIComponent(category)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: imageData, filename }),
+      body: JSON.stringify({ data: url, filename }),
     });
     const result = await resp.json();
     if (result.success && result.localPath) {
