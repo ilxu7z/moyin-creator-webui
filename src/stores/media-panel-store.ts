@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { create } from "zustand";
 import type { CharacterIdentityAnchors, CharacterNegativePrompt } from "@/types/script";
+import { useScriptStore } from "./script-store";
 
 // Tab-based navigation (simpler flat structure)
 export type Tab = "dashboard" | "overview" | "script" | "characters" | "scenes" | "freedom" | "director" | "sclass" | "assets" | "media" | "export" | "settings";
@@ -112,6 +113,8 @@ export interface PendingCharacterData {
   // 集作用域透传
   sourceEpisodeIndex?: number;
   sourceEpisodeId?: string;
+  // 源剧本角色关联（生成成功后回写 characterLibraryId + status）
+  sourceScriptCharacterId?: string;
   // === 年代信息（从剧本元数据传递）===
   storyYear?: number;  // 故事年份，如 2002
   era?: string;        // 时代背景描述
@@ -212,6 +215,8 @@ interface MediaPanelStore {
   pendingCharacterData: PendingCharacterData | null;
   setPendingCharacterData: (data: PendingCharacterData | null) => void;
   goToCharacterWithData: (data: PendingCharacterData) => void;
+  // 角色库生成成功后将库角色关联回源剧本角色（更新 characterLibraryId + status）
+  linkCharacterToScript: (libraryCharId: string) => void;
   // Scene library data passing
   pendingSceneData: PendingSceneData | null;
   setPendingSceneData: (data: PendingSceneData | null) => void;
@@ -287,6 +292,28 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
     activeStage: "assets",
     inProject: true,
   }),
+  // 角色库生成成功后，把库角色关联回源剧本角色（更新 characterLibraryId + status）
+  linkCharacterToScript: (libraryCharId) => {
+    const pending = useMediaPanelStore.getState().pendingCharacterData;
+    const scriptCharId = pending?.sourceScriptCharacterId;
+    if (!scriptCharId) return; // 非从剧本跳转而来，无需回写
+
+    // 清空 pending，避免后续新建角色又重复关联
+    set({ pendingCharacterData: null });
+
+    const scriptStore = useScriptStore.getState();
+    const projectId = scriptStore.activeProjectId;
+    if (!projectId) return;
+
+    try {
+      scriptStore.updateCharacter(projectId, scriptCharId, {
+        characterLibraryId: libraryCharId,
+        status: "completed",
+      });
+    } catch (e) {
+      console.error("[MediaPanel] 关联源剧本角色失败:", e);
+    }
+  },
   // Scene library data passing
   pendingSceneData: null,
   setPendingSceneData: (data) => set({ pendingSceneData: data }),

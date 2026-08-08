@@ -1617,6 +1617,8 @@ export function ScriptView() {
         // === 集作用域透传 ===
         sourceEpisodeIndex: activeEpisodeIndex ?? undefined,
         sourceEpisodeId: activeEpisodeId,
+        // === 源剧本角色关联（生成成功后回写）===
+        sourceScriptCharacterId: character.id,
       });
 
       toast.success(`已跳转到角色库，角色「${character.name}」信息已填充到生成控制台`);

@@ -99,7 +99,7 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
   const { activeProjectId } = useProjectStore();
   const scriptProject = useActiveScriptProject();
   
-  const { pendingCharacterData, setPendingCharacterData } = useMediaPanelStore();
+  const { pendingCharacterData, setPendingCharacterData, linkCharacterToScript } = useMediaPanelStore();
   const { addMediaFromUrl, getOrCreateCategoryFolder } = useMediaStore();
   
   // Form state
@@ -461,6 +461,10 @@ export function GenerationPanel({ selectedCharacter, onCharacterCreated }: Gener
         // 图片保存失败不阻塞预览，仅提示；图片本身已生成成功
         console.error('[CharacterGen] 自动保存失败，仍展示预览:', saveErr);
       }
+
+      // 若从剧本跳转而来，把库角色关联回源剧本角色（更新 characterLibraryId + status）
+      // 使剧集树圆圈变绿、按钮显示“查看角色库形象”
+      linkCharacterToScript?.(targetId);
 
       setPreviewUrl(savedUrl);
       setPreviewCharacterId(targetId);
