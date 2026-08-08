@@ -94,13 +94,15 @@ if (!storageFree) {
 // 2. 启动 Vite
 const viteFree = await checkPort(VITE_PORT);
 if (!viteFree) {
-  console.log(`⚠️  Vite 端口 ${VITE_PORT} 已被占用，可能已有实例在运行`);
-  console.log('   请先关闭旧实例再试，或访问 http://localhost:5174');
+  console.error(`❌ 端口 ${VITE_PORT} 正在使用中（可能已被其他服务占用，或已有旧实例在运行）`);
+  console.error('   Vite 已开启 strictPort，不会静默跳号——请确保端口空闲后再启动。');
+  console.error('   排查占用：lsof -i :' + VITE_PORT);
+  console.error('   或访问 http://localhost:' + VITE_PORT + ' 确认是否已有实例');
   process.exit(1);
 }
 
 console.log(`⚡ 启动 Vite 开发服务器 (端口 ${VITE_PORT})...\n`);
-const vite = spawn('npx', ['vite', '--config', 'vite.config.web.ts', '--host', '0.0.0.0'], {
+const vite = spawn('npx', ['vite', '--config', 'vite.config.web.ts', '--host', '0.0.0.0', '--strictPort'], {
   stdio: 'inherit',
   shell: true,
 });

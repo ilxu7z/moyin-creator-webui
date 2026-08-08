@@ -105,6 +105,8 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    // 端口被占用时立即报错，绝不静默跳号（避免前端/代理/文档端口错位）
+    strictPort: true,
     host: '0.0.0.0',
     proxy: {
       // 将 /api/storage 代理到本地存储服务（端口 3002）

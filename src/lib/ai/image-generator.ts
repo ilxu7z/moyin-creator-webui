@@ -663,12 +663,14 @@ async function submitImageTask(
       if (urlMatch) return { imageUrl: urlMatch[1] };
     }
 
-    // 标准格式: { data: [{ url }] }
+    // 标准格式: { data: [{ url | b64_json }] }
     let taskId: string | undefined;
     const dataList = data.data;
     if (Array.isArray(dataList) && dataList.length > 0) {
       // 直接返回 URL（doubao-seedream、DALL-E 等同步模型）
       if (dataList[0].url) return { imageUrl: dataList[0].url };
+      // 返回 base64（gpt-image-2-c 等通过 images/generations 返回 b64_json）
+      if (dataList[0].b64_json) return { imageUrl: `data:image/png;base64,${dataList[0].b64_json}` };
       taskId = dataList[0].task_id?.toString();
     }
     taskId = taskId || data.task_id?.toString();
@@ -676,6 +678,8 @@ async function submitImageTask(
     if (!taskId) {
       const directUrl = data.data?.[0]?.url || data.url;
       if (directUrl) return { imageUrl: directUrl };
+      const directB64 = data.data?.[0]?.b64_json;
+      if (directB64) return { imageUrl: `data:image/png;base64,${directB64}` };
       throw new Error('No task_id or image URL in response');
     }
 
@@ -896,13 +900,17 @@ export async function submitGridImageRequest(params: {
     || normalizeUrl(data.image_url)
     || normalizeUrl(data.output_url);
 
+  // gpt-image-2-c 等通过 images/generations 返回 b64_json 时，转 base64 data URI
+  const b64 = firstItem?.b64_json || data.b64_json;
+  const imageUrlFinal = imageUrl || (b64 ? `data:image/png;base64,${b64}` : undefined);
+
   const taskId = firstItem?.task_id?.toString()
     || firstItem?.id?.toString()
     || data.task_id?.toString()
     || data.id?.toString();
 
   // 如果只有 taskId 没有 imageUrl，自动轮询获取结果（与 generateImage 行为一致）
-  if (!imageUrl && taskId) {
+  if (!imageUrlFinal && taskId) {
     console.log('[GridImageAPI] Got taskId without imageUrl, polling...', taskId);
     const pollUrl = `${rootBase}${imagePaths.poll(taskId)}`;
     const polledUrl = await pollTaskStatus(taskId, params.keyManager?.getCurrentKey?.() || apiKey, normalizedBase, undefined, pollUrl);
@@ -912,10 +920,10 @@ export async function submitGridImageRequest(params: {
   // taskId 存在时附带 pollUrl 供外部轮询
   if (taskId) {
     const pollUrl = `${rootBase}${imagePaths.poll(taskId)}`;
-    return { imageUrl, taskId, pollUrl };
+    return { imageUrl: imageUrlFinal, taskId, pollUrl };
   }
 
-  return { imageUrl, taskId };
+  return { imageUrl: imageUrlFinal, taskId };
 }
 
 /**
