@@ -138,7 +138,7 @@ export function ScriptView() {
     characters: allCharacters, 
     selectCharacter: selectLibraryCharacter,
   } = useCharacterLibraryStore();
-  const { setActiveTab, goToDirectorWithData, goToCharacterWithData, goToSceneWithData, activeEpisodeIndex, enterEpisode } = useMediaPanelStore();
+  const { setActiveTab, goToDirectorWithData, goToCharacterWithData, goToSceneWithData, activeEpisodeIndex, enterEpisode, setPendingScriptCharacterLink } = useMediaPanelStore();
 
   // 选中状态
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -1620,6 +1620,9 @@ export function ScriptView() {
         // === 源剧本角色关联（生成成功后回写）===
         sourceScriptCharacterId: character.id,
       });
+
+      // 源剧本角色关联存入持久字段（不与 pendingCharacterData 绑定，避免被表单填充 useEffect 清空）
+      setPendingScriptCharacterLink({ scriptCharacterId: character.id, projectId });
 
       toast.success(`已跳转到角色库，角色「${character.name}」信息已填充到生成控制台`);
     },

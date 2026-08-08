@@ -95,6 +95,14 @@ export interface PendingDirectorData {
   sourceEpisodeId?: string;
 }
 
+// 角色库生成成功后，将库角色关联回源剧本角色的持久字段。
+// 与 pendingCharacterData 分离：后者是“一次性表单填充”瞬态数据（用后即清），
+// 此处承载“生成成功后仍需回写”的关联信息，不被表单填充 useEffect 清空。
+export interface PendingScriptCharacterLink {
+  scriptCharacterId: string;
+  projectId: string;
+}
+
 // Data passed from script panel to character library
 export interface PendingCharacterData {
   name: string;
@@ -217,6 +225,9 @@ interface MediaPanelStore {
   goToCharacterWithData: (data: PendingCharacterData) => void;
   // 角色库生成成功后将库角色关联回源剧本角色（更新 characterLibraryId + status）
   linkCharacterToScript: (libraryCharId: string) => void;
+  // 与 pendingCharacterData 分离的持久关联字段（含源剧本角色 id + 项目 id），不被表单填充清空
+  pendingScriptCharacterLink: PendingScriptCharacterLink | null;
+  setPendingScriptCharacterLink: (link: PendingScriptCharacterLink | null) => void;
   // Scene library data passing
   pendingSceneData: PendingSceneData | null;
   setPendingSceneData: (data: PendingSceneData | null) => void;
@@ -293,20 +304,21 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
     inProject: true,
   }),
   // 角色库生成成功后，把库角色关联回源剧本角色（更新 characterLibraryId + status）
+  pendingScriptCharacterLink: null,
+  setPendingScriptCharacterLink: (link) => set({ pendingScriptCharacterLink: link }),
   linkCharacterToScript: (libraryCharId) => {
-    const pending = useMediaPanelStore.getState().pendingCharacterData;
-    const scriptCharId = pending?.sourceScriptCharacterId;
+    // 从独立持久字段读取（不与 pendingCharacterData 耦合，后者被表单填充 useEffect 清空）
+    const link = useMediaPanelStore.getState().pendingScriptCharacterLink;
+    const scriptCharId = link?.scriptCharacterId;
     if (!scriptCharId) return; // 非从剧本跳转而来，无需回写
 
-    // 清空 pending，避免后续新建角色又重复关联
-    set({ pendingCharacterData: null });
+    const projectId = link.projectId;
 
-    const scriptStore = useScriptStore.getState();
-    const projectId = scriptStore.activeProjectId;
-    if (!projectId) return;
+    // 回写前清空，避免后续再次生成时重复绑定
+    set({ pendingScriptCharacterLink: null });
 
     try {
-      scriptStore.updateCharacter(projectId, scriptCharId, {
+      useScriptStore.getState().updateCharacter(projectId, scriptCharId, {
         characterLibraryId: libraryCharId,
         status: "completed",
       });
