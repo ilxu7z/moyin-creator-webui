@@ -268,23 +268,68 @@ export async function saveVideoToLocal(
   url: string, 
   filename: string = 'video.mp4'
 ): Promise<string> {
-  // If not in Electron or already local, return as-is
-  if (!isElectron() || url.startsWith('local-image://') || url.startsWith('data:')) {
+  // Already local — nothing to do
+  if (url.startsWith('local-image://') || url.startsWith('/api/')) {
     return url;
   }
 
-  try {
-    const result = await window.imageStorage!.saveImage(url, 'videos', filename);
-    
-    if (result.success && result.localPath) {
-      console.log(`Video saved locally: ${result.localPath}`);
-      return result.localPath;
-    } else {
+  // Electron 模式：走 IPC 保存
+  if (isElectron()) {
+    try {
+      const result = await window.imageStorage!.saveImage(url, 'videos', filename);
+      if (result.success && result.localPath) {
+        console.log(`Video saved locally: ${result.localPath}`);
+        return result.localPath;
+      }
       console.error('Failed to save video:', result.error);
       return url;
+    } catch (error) {
+      console.error('Error saving video:', error);
+      return url;
     }
+  }
+
+  // 浏览器 Web UI 模式：通过 storage server 落盘（同 saveImageToLocal 的 http/data 分支）
+  // 视频是 2MB+ 大文件，必须走服务器端 fetch（POST data=http URL），不能前端 base64。
+  try {
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+      const resp = await fetch(`/api/images/videos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: url, filename }),
+      });
+      const result = await resp.json();
+      if (result.success && result.localPath) {
+        console.log(`Video saved locally (WebUI, server-fetch): ${result.localPath}`);
+        return result.localPath;
+      }
+      console.error('Failed to save video via server-fetch:', result.error);
+
+      // 服务器端 fetch 失败时退回前端下载 base64 方案（对小文件可用，视频可能失败）
+      const imageData = url.startsWith('/') ? url : `/__api_proxy?url=${encodeURIComponent(url)}`;
+      const blobResp = await fetch(imageData);
+      if (blobResp.ok) {
+        const blob = await blobResp.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const resp2 = await fetch(`/api/images/videos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: dataUrl, filename }),
+        });
+        const result2 = await resp2.json();
+        if (result2.success && result2.localPath) {
+          return result2.localPath;
+        }
+      }
+    }
+    return url;
   } catch (error) {
-    console.error('Error saving video:', error);
+    console.error('Error saving video via HTTP:', error);
     return url;
   }
 }
